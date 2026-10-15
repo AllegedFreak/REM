@@ -3,4 +3,5 @@ __pycache__/
 *.parquet
 *.xls
 *.xlsx
-*.env
+.env
+.vscode/
