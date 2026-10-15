@@ -32,10 +32,11 @@ PASOS = [
     ("Series históricas completas (semanal)", "guardar_historicas.py", "informe_historicas.txt"),   # al final: arma la base DuckDB con todo
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
+    ("Subir scripts a GitHub (sin datos)", "subir_cambios.py", "informe_git.txt"),   # último: solo código y CLAUDE.md
 ]
 LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ERROR", "FALLA", "No se pudo",
                 "Excel", "IPC descargado", "Brecha", "Series guardadas", "Sin cambios", "Serie encadenada", "Días guardados",
-                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "Respaldo terminado", "2) Disco de respaldo")
+                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO")
 
 
 def main():
