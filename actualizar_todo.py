@@ -30,6 +30,7 @@ PASOS = [
     ("Combustibles en surtidor (disco E:)", "actualizar_combustibles.py", "informe_combustibles.txt"),   # 9 MB/día; 780 MB 1 vez/mes
     ("Futuros de dólar (CEM Matba-Rofex/A3)", "actualizar_futuros.py", "informe_futuros.txt"),   # solo días nuevos
     ("Series históricas completas (semanal)", "guardar_historicas.py", "informe_historicas.txt"),   # al final: arma la base DuckDB con todo
+    ("Mercado Central: precios mayoristas de frutas y hortalizas", "actualizar_mercado_central.py", "informe_mercado_central.txt"),
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
     ("Subir scripts a GitHub (sin datos)", "subir_cambios.py", "informe_git.txt"),   # último: solo código y CLAUDE.md

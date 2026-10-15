@@ -60,7 +60,7 @@ REGIONES = {   # código ISO de provincia -> región del IPC (AR-B se separa ent
 CONTROLES = {
     "S01": ("archivo_cadena_roto", "El archivo de una cadena vino roto o ilegible: esa cadena falta ese día"),
     "S02": ("dia_perdido", "Un día ya no está en el portal y no lo habíamos bajado (se pierde)"),
-    "S03": ("cadena_ausente", "Una cadena que informaba antes no aparece en el día"),
+    "S03": ("cadena_ausente", "Una cadena que informaba con regularidad (5 de los últimos 7 días) no aparece en el día"),
     "S04": ("precios_absurdos", "Más de 5% de los precios de una cadena son cero, negativos o gigantes"),
     "S05": ("disco_no_disponible", "El disco E: no está conectado: no se pudo guardar nada"),
     "S06": ("dia_republicado", "El portal republicó un día con contenido distinto (se guarda como versión nueva)"),
@@ -289,14 +289,20 @@ def main():
             registro.loc[len(registro)] = [r["id"], modif, fecha, str(destino), str(len(contenido)), huella,
                                            datetime.now().strftime("%Y-%m-%d %H:%M")]
             nuevos.append((fecha, len(contenido), filas, len(df), len(cadenas), df["producto"].nunique()))
-            # cadenas que informaban antes y hoy no
+            # cadenas que informaban antes y hoy no. Solo se avisa (S03) si la cadena informó en al menos 5 de los últimos
+            # 7 días: hay cadenas intermitentes (Farmacity informa ~1 de cada 7 días) que darían falsas alarmas
             previos = sorted(RESUMEN.glob("sepa_*.parquet"))
-            anteriores = [p for p in previos if p.stem < f"sepa_{fecha}"][-3:]
+            anteriores = [p for p in previos if p.stem < f"sepa_{fecha}"][-7:]
             if anteriores:
-                antes = set().union(*[set(pd.read_parquet(p, columns=["id_comercio"])["id_comercio"].astype(str)) for p in anteriores])
-                faltan = antes - set(cadenas)
-                if faltan:
-                    alertas.append({"codigo": "S03", "fecha": fecha, "detalle": f"no informaron las cadenas {sorted(faltan)}"})
+                conteo = pd.Series([c for p in anteriores for c in
+                                    set(pd.read_parquet(p, columns=["id_comercio"])["id_comercio"].astype(str))]).value_counts()
+                faltan = set(conteo.index) - set(cadenas)
+                regulares = sorted(c for c in faltan if conteo[c] >= min(5, len(anteriores)))
+                intermitentes = sorted(faltan - set(regulares))
+                if regulares:
+                    alertas.append({"codigo": "S03", "fecha": fecha, "detalle": f"no informaron las cadenas {regulares}"})
+                if intermitentes:
+                    informe.append(f"   ({fecha}: tampoco informaron {intermitentes}, que son intermitentes; no se avisa)")
         registro.to_csv(REGISTRO, index=False)
         # días que se perdieron: huecos entre el primer día bajado y hoy que ya no están en el portal
         bajados = sorted(set(registro["fecha_datos"]))

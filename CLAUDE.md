@@ -38,6 +38,19 @@ Scripts:
   - **Disco F: "1TB"** (`F:\Respaldo_REM`): todo, incluidas las historias de terceros (~85 GB). Si no está conectado, avisa y sigue.
   - Excluye la base DuckDB (se rearma sola) y las carpetas temporales. Informe en `datos\informe_respaldo.txt`.
   - Marcos está sin trabajo: **nada de suscripciones pagas nuevas**. OneDrive pasa a 2 TB familiares con los términos nuevos (en unos días o meses).
+- `subir_cambios.py` (desde el 15-oct-2026, último paso de `actualizar_todo.py`): sube los scripts y CLAUDE.md a GitHub (https://github.com/AllegedFreak/REM, privado, rama main).
+  - Hace `git add`, `git status`, commit "Actualización automática <fecha y hora>" y `git push`. Si no hay cambios, no hace nada.
+  - Nunca fuerza: sin pull, rebase ni reset. Si el push falla, deja el commit local y avisa.
+  - Frena antes de agregar si aparece algo de `datos\`, archivos de datos (.parquet, .xls, .xlsx, .csv, .json, .zip...), claves o archivos de más de 5 MB.
+  - Frena antes del commit si el texto de los cambios parece contener una clave.
+  - Git está en `C:\Program Files\Git\cmd\git.exe` (instalado el 15-oct-2026; las terminales abiertas antes no lo ven en el PATH hasta reiniciar VS Code).
+  - Primer commit automático: 073d85a.
+- `actualizar_mercado_central.py`: precios mayoristas diarios de frutas y hortalizas del Mercado Central de Buenos Aires.
+  - Fuente: el servidor oficial; si un archivo ya no está ahí, la copia del archivo de Internet (Wayback Machine).
+  - Guarda las planillas diarias en `E:\mercado_central\diarios` y arma `datos\mercado_central.parquet`.
+  - Cobertura: 2017 a 2021, parte de 2022 y 2026. **Jul-2022 a dic-2025 no está disponible** (habría que pedírselo al Mercado Central).
+  - Algunos ZIP oficiales traen archivos ajenos de la PC de quien los armó (páginas guardadas, capturas): se descartan sin abrirlos.
+- `inventario_variables.py`: listado de todas las variables guardadas (desde, hasta, cantidad de registros) en `datos\inventario_variables.xlsx`.
 - `importar_preciazo.py`: resume los días archivados por preciazo (`E:\SEPA\historico_preciazo`) con el mismo resumen que `actualizar_sepa.py`. Saltea las cadenas mayoristas (otro formato) y los archivos vacíos. Algunos días de ene-feb 2025 traen cada cadena en un ZIP propio. Registro en `E:\SEPA\historico_preciazo\importados.csv`.
 - `validar_indice_sepa.py`: compara la variación mensual del índice SEPA con un "INDEC equivalente" (mismas clases y pesos), por región. Informe en `datos\informe_validacion_sepa.txt`.
 - `ubicar_en_excel.py`: dice en qué fila/celda del Excel del REM está un dato (se corre desde la terminal con argumentos).
