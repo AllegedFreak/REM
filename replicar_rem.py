@@ -659,7 +659,7 @@ def main():
                  (f"{ei_t:.1f}%." if not ei_prov else
                   f"todavía NO publicada: se usa la de {t - 1} ({ei['mediana'].get(t - 1, np.nan):.1f}%). PROVISORIO para {A_PRONOSTICO}."))
         L.append("")
-        registro = []
+        registro, insumos = [], []
         L.append(f"   {'mes':9} {'REM anterior':>12} | {'B':>6} {'rango del REM (B)':>18} | {A_PRONOSTICO:>16} | {'rango de la inflación':>22}")
         for H in [f"m{h}" for h in HORIZONTES] + ["12m"]:
             h = 0 if H == "12m" else int(H[1:])
@@ -669,6 +669,7 @@ def main():
                 fila["ei_med_l"] = np.log1p(fila["ei_med"] / 100) * 100
                 fila["ei_med_m"] = ei_m["mediana"].get(t - 1, np.nan)
             th = T[T.H == H]
+            insumos.append({"relevamiento": str(t), "H": H, **fila.to_dict()})
             preds = {}
             for nom in ("B", A_PRONOSTICO):   # A sin salarios: el dato de t-2 todavía puede no estar publicado
                 tipo, cm, c12 = VARIANTES[nom]
@@ -701,6 +702,8 @@ def main():
                              "ipc_t1_publicado": not np.isnan(pi.get(t - 1, np.nan))})
         L.append("   (m0 = mes en curso; '12m' = inflación de los próximos 12 meses en %)")
         # registro del pronóstico ANTES de que salga el REM de t: es la prueba limpia hacia adelante (sección 7)
+        # datos con que se armó el pronóstico de hoy (se pisa en cada corrida; el pronóstico queda en el registro)
+        pd.DataFrame(insumos).to_csv(D.CARPETA / "pronostico_insumos.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
         reg = pd.DataFrame(registro)
         reg.to_csv(REGISTRO, mode="a", header=not REGISTRO.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
         L.append(f"   Pronóstico registrado en datos\\{REGISTRO.name} ({len(reg)} filas).")

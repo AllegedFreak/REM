@@ -31,6 +31,15 @@ Scripts:
 - `guardar_historicas.py`: todas las demás series usadas o revisadas, con historia completa (semanal), y la base `datos\base_rem.duckdb`.
 - `actualizar_ipcba.py`: IPCBA (CABA) desde la página de series empalmadas de la Ciudad; si no puede bajarlo, usa el Excel local y avisa (alerta P06).
 - `actualizar_bcra.py`: series del BCRA vía API v4.0 (tipo de cambio, tasas y oferta monetaria: ids 15, 17 y 109), diaria y mensual.
+  - Desde el 15-oct-2026, las revisiones chicas de datos recientes (< 0,5%, últimos 30 días) son **B06, informativo y sin cartel**. El BCRA corrige seguido billetes y M2 de los últimos días: el 15-oct fueron 8 datos, con cambios de 0,00% a 0,06%.
+  - Las demás revisiones siguen como B01, con cartel.
+- `respaldo.py` (desde el 15-oct-2026, último paso de `actualizar_todo.py`): copia con robocopy que **solo agrega y actualiza, nunca borra**.
+  - **OneDrive** (`C:\Users\marco\OneDrive\Respaldo_REM`, ~7 GB): proyecto, crudos y resúmenes propios de SEPA, canasta y combustibles. Las historias de terceros (Zenodo, preciazo) no van, para no llenar C:.
+  - **Disco F: "1TB"** (`F:\Respaldo_REM`): todo, incluidas las historias de terceros (~85 GB). Si no está conectado, avisa y sigue.
+  - Excluye la base DuckDB (se rearma sola) y las carpetas temporales. Informe en `datos\informe_respaldo.txt`.
+  - Marcos está sin trabajo: **nada de suscripciones pagas nuevas**. OneDrive pasa a 2 TB familiares con los términos nuevos (en unos días o meses).
+- `importar_preciazo.py`: resume los días archivados por preciazo (`E:\SEPA\historico_preciazo`) con el mismo resumen que `actualizar_sepa.py`. Saltea las cadenas mayoristas (otro formato) y los archivos vacíos. Algunos días de ene-feb 2025 traen cada cadena en un ZIP propio. Registro en `E:\SEPA\historico_preciazo\importados.csv`.
+- `validar_indice_sepa.py`: compara la variación mensual del índice SEPA con un "INDEC equivalente" (mismas clases y pesos), por región. Informe en `datos\informe_validacion_sepa.txt`.
 - `ubicar_en_excel.py`: dice en qué fila/celda del Excel del REM está un dato (se corre desde la terminal con argumentos).
 - `explorar_bcra.py`: explora la API del BCRA (solo mira). `explorar_monetarias.py` (si está): busca series de oferta monetaria.
 

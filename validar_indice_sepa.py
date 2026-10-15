@@ -63,7 +63,6 @@ def main():
     nac = V.assign(w=V["region"].map(PESO_REGION)).groupby("mes").apply(
         lambda q: pd.Series({c: np.average(q[c], weights=q["w"]) for c in ["sepa", "indec_equivalente", "indec_alimentos"]}
                             | {"n_regiones": len(q)}))
-        if len(V) else pd.DataFrame()
     g = hs[hs["id"] == "indec_ipc_nivel_general"].set_index("mes")["valor"].sort_index()
     nac["indec_general"] = ((g / g.shift(1) - 1) * 100).reindex(nac.index)
     nac = nac.reset_index().assign(region="Nacional")

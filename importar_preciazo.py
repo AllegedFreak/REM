@@ -7,7 +7,9 @@
 # - Registro: E:\SEPA\historico_preciazo\importados.csv (día, cadenas, precios, filas, segundos, error).
 # Uso: py -3.13 importar_preciazo.py [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD] [--max N]
 import argparse
+import io
 import re
+import zipfile
 import shutil
 import sys
 import tarfile
@@ -38,6 +40,25 @@ def extraer(archivo, destino):
     with open(archivo, "rb") as fh, zstandard.ZstdDecompressor().stream_reader(fh) as r, tarfile.open(fileobj=r, mode="r|") as t:
         for m in t:
             partes = Path(m.name).parts
+            # algunos días (ene-feb 2025) traen cada cadena como un ZIP propio en lugar de una carpeta con los csv
+            if m.isfile() and partes[-1].endswith(".zip"):
+                mm = PATRON.search(partes[-1])
+                if not mm:
+                    continue
+                carpeta = destino / partes[-1][:-4]
+                carpeta.mkdir(parents=True, exist_ok=True)
+                try:
+                    with t.extractfile(m) as src:
+                        zipfile.ZipFile(io.BytesIO(src.read())).extractall(carpeta)
+                except zipfile.BadZipFile:
+                    continue
+                for csv in list(carpeta.rglob("*.csv")):          # por si el zip trae una subcarpeta
+                    if csv.parent != carpeta:
+                        shutil.move(str(csv), carpeta / csv.name)
+                sello = mm.group(2) + mm.group(3)
+                if mm.group(1) not in carpetas or sello > carpetas[mm.group(1)][0]:
+                    carpetas[mm.group(1)] = (sello, carpeta)
+                continue
             if not m.isfile() or len(partes) < 2 or not partes[-1].endswith(".csv"):
                 continue
             mm = PATRON.search(partes[-2])

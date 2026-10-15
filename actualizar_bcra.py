@@ -68,7 +68,12 @@ CONTROLES = {
     "B03": ("serie_desactualizada", "Una serie activa no tiene datos recientes"),
     "B04": ("valor_atipico", "Un dato nuevo cambia más de 25% respecto del anterior"),
     "B05": ("fecha_repetida_o_vacio", "Fecha repetida o valor vacío"),
+    "B06": ("revision_menor", "Revisión chica de un dato reciente (< 0,5%, últimos 30 días): normal en agregados monetarios; "
+                              "se anota sin cartel"),
 }
+INFORMATIVOS = {"B06"}            # se anotan en el informe y en alertas_bcra.csv, pero no disparan cartel ni código 1
+REVISION_MENOR_PCT = 0.5
+REVISION_MENOR_DIAS = 30
 
 
 class ErrorAPI(Exception):
@@ -126,6 +131,7 @@ def bajar_serie(vid, desde, copia):
 def avisar(codigo, nuevos, alertas, informe):
     if codigo == 0:   # las series diarias traen datos nuevos todos los días: solo se avisa si hay alertas o error
         return
+    alertas = [a for a in alertas if a["codigo"] not in INFORMATIVOS]   # las revisiones menores no van al cartel
     clave = f"{codigo}|" + ",".join(sorted(f"{a['codigo']}:{a['serie']}:{a['fecha']}" for a in alertas))
     marca = CARPETA / "ultimo_aviso_bcra.txt"
     if marca.exists() and marca.read_text(encoding="utf-8") == clave:
@@ -199,7 +205,10 @@ def main():
                 solape = previo[previo["fecha"] >= limite].merge(nuevo, on="fecha", suffixes=("_ant", ""))
                 dif = (solape["valor"] - solape["valor_ant"]).abs() > 1e-6 * solape["valor_ant"].abs().clip(lower=1)
                 for _, r in solape[dif].iterrows():
-                    alerta("B01", nombre, r["fecha"], f"antes {r['valor_ant']}, ahora {r['valor']}")
+                    pct = abs(r["valor"] / r["valor_ant"] - 1) * 100 if r["valor_ant"] else float("inf")
+                    reciente = (date.today() - r["fecha"]).days <= REVISION_MENOR_DIAS
+                    cod = "B06" if reciente and pct < REVISION_MENOR_PCT else "B01"
+                    alerta(cod, nombre, r["fecha"], f"antes {r['valor_ant']}, ahora {r['valor']} (cambio {pct:.3f}%)")
                 ultimo_prev = max(previo["fecha"])
                 agregados = nuevo[nuevo["fecha"] > ultimo_prev].copy()
                 # valores atípicos solo en los datos nuevos
@@ -256,18 +265,24 @@ def main():
         informe.append("Archivos: datos\\bcra_series.parquet (diario) y datos\\bcra_series_mensual.parquet (promedio y fin de mes)")
         informe.append("")
         informe.append("=" * 60)
+        graves = [a for a in alertas if a["codigo"] not in INFORMATIVOS]
+        menores = [a for a in alertas if a["codigo"] in INFORMATIVOS]
+        if menores:
+            informe.append(f"Revisiones menores del BCRA (informativo, sin cartel): {len(menores)} datos recientes corregidos "
+                           f"en menos de {REVISION_MENOR_PCT}% ({', '.join(sorted({a['serie'] for a in menores}))}).")
         if alertas:
-            codigo = 1
             pd.DataFrame(alertas).to_csv(ALERTAS_CSV, index=False, encoding="utf-8-sig")
-            informe.append(f"ALERTAS: {len(alertas)} para revisar (detalle en datos\\alertas_bcra.csv)")
-            for a in alertas[:15]:
+        if graves:
+            codigo = 1
+            informe.append(f"ALERTAS: {len(graves)} para revisar (detalle en datos\\alertas_bcra.csv)")
+            for a in graves[:15]:
                 informe.append(f"  - {a['codigo']} {CONTROLES[a['codigo']][0]} | {a['serie']} | {a['fecha']} | {a['detalle']}")
-            if len(alertas) > 15:
-                informe.append(f"  ... y {len(alertas) - 15} más")
+            if len(graves) > 15:
+                informe.append(f"  ... y {len(graves) - 15} más")
             informe.append("  Las filas afectadas quedan marcadas en alerta_fuente. No se corrigió ni se borró nada.")
         else:
             informe.append("ALERTAS: ninguna. Todo en orden.")
-            if ALERTAS_CSV.exists():
+            if not alertas and ALERTAS_CSV.exists():
                 ALERTAS_CSV.unlink()
         pd.DataFrame([{"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "datos_nuevos": len(nuevos_fechas),
                        "alertas": len(alertas)}]).to_csv(HISTORIAL, mode="a", header=not HISTORIAL.exists(),
