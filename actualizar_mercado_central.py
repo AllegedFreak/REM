@@ -138,8 +138,8 @@ def main():
     L = [f"=== MERCADO CENTRAL (precios mayoristas diarios) | {datetime.now():%Y-%m-%d %H:%M} ==="]
     reg = pd.read_csv(REGISTRO, encoding="utf-8-sig") if REGISTRO.exists() else pd.DataFrame(columns=["archivo", "origen", "sha1", "planillas", "fecha"])
     # ya bajados, o buscados y no disponibles (estos se reintentan solo con --reintentar)
-    hechos = set(reg.loc[(reg["planillas"] > 0) | ((reg["origen"] == "no disponible") & ("--reintentar" not in sys.argv)), "archivo"]) \
-        if len(reg) else set()
+    hechos = set(reg.loc[(reg["planillas"] > 0) | (reg["origen"].isin(["no disponible", "error temporal"])
+                                                   & ("--reintentar" not in sys.argv)), "archivo"]) if len(reg) else set()
     actuales = archivos_actuales()
     historicos = sorted(json.loads(HISTORICOS.read_text())) if HISTORICOS.exists() else []
     mes = datetime.now()
@@ -147,13 +147,20 @@ def main():
     pendientes = [a for a in dict.fromkeys(historicos + actuales) if a not in hechos or a in actuales]
     alertas, nuevas = [], 0
     for a in pendientes:
-        contenido, origen = bajar(DIR_ARCH + a), "oficial"
-        if contenido is None:
-            if a in actuales:
-                alertas.append(f"M01 archivo listado en la página oficial pero no se pudo bajar: {a}")
-                continue
-            contenido, origen = wayback(a)
-            time.sleep(2)
+        try:
+            contenido, origen = bajar(DIR_ARCH + a), "oficial"
+            if contenido is None:
+                if a in actuales:
+                    alertas.append(f"M01 archivo listado en la página oficial pero no se pudo bajar: {a}")
+                    continue
+                contenido, origen = wayback(a)
+                time.sleep(2)
+        except Exception as e:
+            # servidor caído o saturado (p. ej. 503/504 del archivo de Internet): se anota y se sigue; se reintenta con
+            # --reintentar
+            reg.loc[len(reg)] = [a, "error temporal", "", 0, f"{mes:%Y-%m-%d %H:%M}"]
+            print(f"  {a}: error temporal ({type(e).__name__}: {str(e)[:80]})", flush=True)
+            continue
         if contenido is None:
             reg.loc[len(reg)] = [a, "no disponible", "", 0, f"{mes:%Y-%m-%d %H:%M}"]
             continue

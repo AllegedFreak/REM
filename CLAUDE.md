@@ -69,6 +69,17 @@ Datos en `datos\`:
 - ~~Consulta personal de precios cerca de casa~~ **Hecha el 14-oct-2026:** `comparar_precios.py` arma `comparacion_precios_<día>.xlsx` con 3 sucursales cercanas (detalles en la memoria de Claude). Normaliza por código de barras y, en frescos, por nombre; deduce qué es, marca, variante y tamaño. SEPA **no informa descuentos bancarios ni de programas de fidelidad**. Las reglas de "qué es" de este script podrían servir para la canasta del índice SEPA.
 - ~~Demora de datos.gob.ar~~ **Resuelto el 14-oct-2026:** `actualizar_ipc.py` ahora baja el IPC directo del INDEC (`serie_ipc_divisiones.csv`). Ese día el INDEC ya tenía septiembre y datos.gob.ar no. Al cambiar la fuente, abr-2019 del nivel general difería (datos.gob.ar 212,96 vs INDEC 213,05): quedó el del INDEC. Respaldo del IPC anterior en `datos\copias\ipc_indec_antes_cambio_fuente_*.parquet`.
 
+- **Mercado Central jul-2022 a oct-2025 (15-oct-2026):** Marcos busca por su cuenta.
+  - **Pista oficial más prometedora: el Ministerio de Agricultura (SSMA).**
+    - `ssma.magyp.gob.ar/frutas.preciospromedioh.aspx` y `...preciospromediof.aspx`: precio promedio $/kg en el MCBA; habría planillas anuales tipo `PHOR25_K.xlsx`.
+    - `ssma.magyp.gob.ar/frutas.precios.aspx`: diario, con filtro de fechas y botón Exportar (formulario GeneXus; el repo deaeconomiactes/Serie-Agricola lo bajó para 2024 y 2026 con navegador automatizado).
+    - El sitio es muy inestable (502/504 el 15-oct).
+  - **Intento automático programado** para el 16-oct 03:00 (tarea de Windows "REM intento madrugada" → `intento_madrugada.cmd`). Corre `bajar_magyp_mcba.py` y `actualizar_mercado_central.py --reintentar`. Resultado en `datos\informe_magyp_mcba.txt` y `datos\log_intento_madrugada.txt`. **Revisarlo a la mañana.**
+  - **Otros contactos:**
+    - Mauro, de elmauron/scrapper (base propia desde jul-2025); texto para un issue de GitHub listo.
+    - Llamado al MCBA el 16-oct a las 10:00 (recordatorio en el calendario).
+  - Ya cubierto: 16-oct a 31-dic-2025, con las páginas guardadas de Precios del Central (validadas 100% contra las planillas oficiales).
+
 ## Ideas guardadas para después
 1. **Variables que usan las consultoras para el REM** (sin verificar): alta frecuencia de precios (scraping de alimentos), precios regulados (tarifas), salarios/paritarias, estacionalidad, crawling peg, brecha cambiaria, emisión y déficit fiscal, tasas y velocidad del dinero.
 2. **Candidatas nuevas para probar a 6-12 meses:** brecha cambiaria, salarios (CVS/índice de salarios), precios regulados.
@@ -83,6 +94,12 @@ Datos en `datos\`:
 
 ## Decisiones tomadas
 - **Roles de los modelos de réplica (Marcos, 14-oct-2026):** **A es el producto**: pronóstico propio solo con datos públicos, independiente del REM; todo el esfuerzo de mejora va ahí. **B es instrumento**, no pronóstico propio (necesita el REM anterior): sirve para (1) aprender qué mira el mercado y con qué peso, y llevar esas lecciones a A; (2) vara de comparación (A tiene que acercarse a lo que logra B); (3) anticipar el próximo REM antes de que se publique.
+  - **A nunca usa el REM como variable (Marcos, 16-oct-2026).** Ni el REM anterior ni combinaciones A+REM: para eso está B. Lo aprendido modelando A se lleva a B.
+  - **Mejoras de B (16-oct-2026):**
+    - **B a 12 meses revisa el REM anterior en logaritmos y suma la variación de la brecha** (`B_12`, `REV_LOG`; "B 12m puntos" queda para comparar).
+      - En 2025-26, distancia al REM 1,62 → 1,03 pp (el REM anterior sin cambios da 1,18). En toda la muestra 5,88 → 5,84; en la muestra común 8,73 → 7,78 (REM anterior 8,22).
+    - **Probado y descartado: termómetro del súper en B** (dejando un mes afuera, m0-m2 empeoran 6-10%).
+      - El súper explica cuánto se aparta el REM de A, pero no cuánto corrige el REM de un mes a otro: eso ya lo captan la sorpresa del IPC y el dólar.
 - **Vara de "réplica aceptable" (14-oct-2026):** que el pronóstico propio caiga dentro del **80% central de las consultoras del REM** (entre P10 y P90) en ~80% de los meses, como lo haría una consultora típica (y dentro del 50% central, P25-P75, en ~50%). Dispersión de las consultoras: m1 P10-P90 ≈ ±14% de la mediana (P25-P75 ±7%); m3 ±19% (±10%). Resultado al 14-oct-2026 (m1 / m3): **B** 82% / 93% dentro del 80% central → se comporta como una consultora típica; **A (propio)** 46% / 53%, y empeora en 2025-2026 (m1: 17-38%) → todavía se comporta como un pronosticador fuera del rango. Escala de referencia: el error típico del REM contra lo que pasó es 17% del dato (m1).
 - **Regla de fuentes (Marcos, 14-oct-2026):** usar fuentes oficiales (BCRA, INDEC, Ministerio de Economía / datos.gob.ar, institutos provinciales) siempre que la variable exista ahí. Las APIs de terceros (argentinadatos.com, etc.) **solo para variables que no publica ningún organismo oficial** (hoy: CCL, MEP y blue), porque pueden discontinuarse. Todo lo bajado de terceros queda guardado localmente con su historia completa.
 - **Guardar TODO localmente aunque no se use (Marcos, 15-oct-2026):** si una fuente deja de publicar, es más fácil conseguir el dato de cada día nuevo en otro lado que reconstruir la historia. Revisión del 15-oct-2026 de cómo cada actualizador protege lo guardado:
@@ -294,6 +311,51 @@ Datos en `datos\`:
         - **El método en sí funciona:** con los meses 1-6 **del propio REM**, el glide hacia EI reproduce el 12m del REM mejor que repetir el m6 (4,7 contra 5,8 pp).
         - **La falla está en los meses de A:** se equivoca ~1 pp por mes (casi sin sesgo), y al encadenar 12 meses los errores se acumulan.
         - **Conclusión:** el 12m de A sigue siendo la regresión directa. El glide path sirve recién cuando el pronóstico mensual de A sea mucho mejor.
+      - **Cambio de regla (Marcos, 16-oct-2026):** 2025-26 **se usa para modelar** (es el régimen actual). La prueba limpia es la que se hace hacia adelante (sección 7 y registros diarios), no un período reservado. `CORTE_SELECCION` queda solo para mostrar los dos períodos por separado.
+      - **A usa la NÚCLEO de los últimos 3 meses en lugar de la inflación general (16-oct-2026; `A_MENSUAL`).**
+        - Motivo: caso jun-2026. Después de la quita de subsidios de marzo (IPC 3,4%), A arrastró el salto y pronosticó junio 2,3-2,7% (real 1,89%; REM 2,0-2,1%).
+        - En 2025-26, distancia al REM: m1 0,41 → 0,32 y m2 0,34 → 0,23. Dentro de P10-P90: m1 38% → 52%, m2 57% → 81%, m3 76% → 86%. En m0 empata.
+        - En 2019-24 empata o empeora (2024 m1 1,48 → 1,78).
+        - Variantes para comparar: "A general" (el A anterior) y "A núcleo+reg" (agrega regulados y estacionales de t−1; resolvió jun-2026 a 1-3 meses, pero en promedio no mejora).
+        - **Pendiente:** el término estacional p12 (mismo mes del año anterior, general) también arrastra tarifazos un año después. Con A núcleo, ene-mar 2027 da 1,9-2,15% contra ~1,6-1,7% del REM. Probar estacionalidad con la núcleo o con el promedio de varios años.
+      - **Hogares vs REM pronosticando la inflación de 12 meses (16-oct-2026; 112 relevamientos 2016-06 a 2025-09):**
+        - En total, el REM es algo mejor: error absoluto 29,6 vs 34,4 pp; p 0,39. Eso se debe a 2022-23, cuando los hogares subestimaron más todavía.
+        - **En el régimen actual ganan los hogares:** 2024 20,8 vs 31,8 pp y 2025 3,7 vs 10,8 pp (más cerca en el 100% de los meses de 2025). Ejemplo: a mediados de 2025 los hogares esperaban 30%, el REM ~21% y pasó ~33%.
+        - Desde 2024 el REM subestima ~11 pp por año.
+        - Cuidado: pronósticos superpuestos y pocas observaciones independientes; la mediana de los hogares se mueve de a 5 puntos.
+      - **Dos objetivos (Marcos, 16-oct-2026; "paso a paso"):**
+        - "Nuestro pronóstico del REM" (A y B, como hasta ahora).
+        - **"Nuestro pronóstico de la inflación" (sección 10 de `replicar_rem.py`).** Es el mismo A; en el mes en curso, A + termómetro del súper. Se evalúa contra el IPC real y queda en `datos\registro_inflacion.csv`.
+        - Probado y descartado: entrenar las mismas variables contra el IPC real (ventana acumulada o de 36 meses) o corregir A por su sesgo reciente. Empeora mucho, porque aprende tarde (el IPC se publica después).
+        - **En 2025-26, A pronostica la inflación mejor que el REM a 3-6 meses y a 12m:**
+          - error a 4 meses 0,49 vs 0,54, a 5 meses 0,45 vs 0,61 y a 6 meses 0,51 vs 0,73 pp; a 12m 7,7 vs 10,8 pp;
+          - A gana en el 53-78% de los meses.
+          - En m0-m1 el REM es muy superior (0,25 vs 0,72).
+          - En 2019-24 el REM fue mejor en todos los horizontes.
+        - Lectura: a mediano plazo, emular al REM es emular su sesgo optimista; A se apoya en los hogares.
+        - **¿Por qué A gana en 2025-26 y no antes? (16-oct-2026)**
+          - A es un modelo de inercia; el REM apuesta a cambios. A pierde mucho en los giros: 2022-23 aceleración (sesgo A −2 a −4 pp/mes a m3) y 2024 desinflación (+3,8).
+          - En 2025 no hubo giro. El REM esperó una desinflación que no llegó (sesgo −0,6 a m3) y A, apoyado en los hogares, acertó más (gana en el 75% de los meses).
+          - **Pero no se puede reconocer a tiempo.** Probado y descartado:
+            - Semáforo: en meses verdes de toda la historia el REM igual gana a 3-6 meses (1,02 vs 1,23); la regla "A en verde, REM en rojo" no le gana al REM.
+            - Regla por sesgo reciente del REM (últimos 6 o 12 errores publicados, umbrales 0,2-0,5): tampoco. El sesgo se descubre tarde (a 6 meses hay que esperar 7) y en 2025-26 eligió A solo el 9-28% de las veces.
+          - En toda la historia el REM sigue siendo el mejor pronosticador de la inflación. El promedio 50/50 A+REM es un seguro razonable: en 2025-26 casi iguala al mejor a 3-5 meses y en toda la historia queda entre los dos.
+      - **A mensual se estima con regresión ROBUSTA de Huber (16-oct-2026; `estimar()` en `replicar_rem.py`).** Le resta peso a los meses extremos de 2023-24, que deformaban los coeficientes. El 12m (logaritmos) y B siguen con MCO; "A MCO" queda para comparar.
+        - Distancia al REM en la muestra común: m1 0,85 → 0,77; m2 0,92 → 0,78; m3 0,91 → 0,80; m4 1,04 → 0,89.
+        - 2025-26 contra el IPC real: m1 0,67 → 0,63; m2 0,66 → 0,58; m4 0,49 → 0,40. Dentro de P10-P90: m0 14% → 33%, m1 52% → 62%.
+        - Perdió un poco de distancia al REM en 2025-26 a m2-m6 (+0,03-0,05 pp).
+        - También probadas: ponderación relativa al nivel de inflación, recortar meses con núcleo > 6% y Huber+relativa. Ganan en algún horizonte y pierden en otros.
+        - El "Decisión: A queda con MCO" de abajo es anterior y queda reemplazado.
+      - **Objetivo de Marcos (16-oct-2026): ganarle al REM pronosticando la inflación.**
+        - Modelo propio **"I" (nuestro pronóstico de la inflación)**, en la sección 10 de `replicar_rem.py` (`VARIANTES["I"]`).
+          - Igual que A (robusta, núcleo), pero con el **promedio** de las expectativas de los hogares; la mediana queda clavada de a 5 puntos.
+          - 12m en logaritmos con el promedio de hogares. En el mes en curso, + termómetro del súper.
+          - No usa el REM como variable.
+        - Error contra el IPC real (pp), I vs REM:
+          - **2025-26:** m2 0,54 vs 0,57 · m3 0,36 vs 0,53 · m4 **0,26 vs 0,54** · m6 0,33 vs 0,73 · 12m **3,4 vs 10,8**. I gana en el 53-82% de los meses (12m 100%), pero **sin significancia** (DM p 0,23-0,69; pocas observaciones).
+          - **2019-24:** el REM es significativamente mejor en todos los horizontes (p < 0,05).
+          - Mes en curso: imposible por ahora (I+súper 0,65 vs REM 0,28).
+        - **Para ganarle de verdad:** (1) que la ventaja de 2025-26 se sostenga en la prueba hacia adelante (`datos\registro_inflacion.csv`); (2) historia SEPA para el mes en curso y el siguiente; (3) anticipar los giros, que es donde I/A pierden (elecciones, noticias, tarifas anunciadas).
       - **Decisión: A queda con MCO.** Ningún método mejora de forma clara. Lo que separa a A del REM es información, no el método de estimación.
       - **Período reservado 2025-01 a 2026-09 mirado UNA vez el 15-oct-2026** (`--ver-prueba`; 21 relevamientos). **Ya no es una prueba limpia.** La próxima prueba limpia es hacia adelante: los relevamientos desde 2026-10, registrando el pronóstico antes de que salga cada REM.
         - **A (MCO), el elegido:** distancia al REM m0 0,52 · m1 0,41 · m3 0,25 · m5 0,33 pp · 12m 6,4 pp. Dentro de P10-P90: m1 38%, m3 76%, m5 52%. B, como referencia: m1 0,20, m3 0,12, 12m 1,6; P10-P90 76% / 95% / 100%.
@@ -354,6 +416,36 @@ Datos en `datos\`:
         - Octubre 2026: **verde**.
         - Cada corrida queda en `datos\registro_alertas.csv`. El semáforo sale en `informe_general.txt`.
         - EI, ICC e ICG del mes salen hacia el día 20: antes de eso figuran "sin dato todavía".
+      - **Información del mes en curso por rubros (15-oct-2026).** Pistas para que A vea el mes en curso como el REM.
+        - **Frutas y verduras: Mercado Central** (`actualizar_mercado_central.py`, `validar_mercado_central.py`).
+          - Mayorista hasta el día 25 vs IPC GBA, desestacionalizado: verduras 0,54 y frutas 0,67 (2017-21); 2026: 0,81-0,84.
+          - Por producto: tomate 0,90 · lechuga 0,82; la papa Spunta sigue mejor que el promedio de la especie.
+          - Nowcast 2026 fuera de muestra: verduras error 6,5 → 4,7 pp; frutas 4,0 → 2,5 pp.
+          - **Pesan 4% del IPC: no mejoran a A** (m0 0,353 → 0,379; muestra muy corta por el hueco 2022-2025).
+          - Sumar pimiento, zanahoria y acelga mejora la canasta de verduras; en frutas, las 4 del INDEC son lo mejor.
+        - **Regulados y alquileres, techo con información perfecta:**
+          - En 2021-24 los regulados explicaban el error de A en m0 (correlación 0,46; tarifazos).
+          - En 2025-26, ni con información perfecta mejora A (0,522 → 0,548).
+          - Alquileres: desde el DNU, puro arrastre de la inflación de 12 meses (correlación 0,92). Pesan 3,4%.
+          - No se arma el bloque "componentes anticipables". Los anuncios grandes de tarifas van como ajuste manual o alerta.
+        - **Carne: hacienda MAG Cañuelas** (`actualizar_mag.py` desde 2017, `validar_mag.py`).
+          - Novillitos+vaquillonas hasta el día 25 vs IPC GBA carnes: correlación 0,79 desestacionalizada (0,84 contra cortes INDEC).
+          - Traslado: ~mitad en el mes y algo al siguiente.
+          - Nowcast de carnes 2024-26 fuera de muestra: error 1,89 (estacionalidad) → 1,26 pp.
+          - **El REM mira la carne** (t 3,9 en m0 y 6,1 en m1).
+          - Pero "A+carne" fuera de muestra: m0 +5,5% y m1 −3,6% (n.s.); "B+carne" m0 −4,9% (n.s.). **En observación, no fijada.**
+        - **Supermercados: índice SEPA con historia** (preciazo ago-2024 a oct-2026; `importar_preciazo.py`, `indice_sepa.py`, `validar_indice_sepa.py`). 20 variaciones mensuales comparables: sep-2024 a mar-2026 y ago-sep-2026.
+          - Contra el INDEC: canasta total vs IPC general 0,42. Envasados vs mismas clases INDEC 0,46, con sesgo de −0,37 pp/mes (las cadenas suben menos). Carnes en el súper 0,73.
+          - **La canasta total del súper hasta el día 25 explica el error de A en m0:**
+            - t 4,2 contra el REM (R² 0,31) y t 3,7 contra lo que pasó (R² 0,32).
+            - Dejando un mes afuera: distancia al REM 0,499 → 0,477 y error contra lo que pasó 0,716 → 0,610.
+            - En tiempo real (últimos 10 meses): 0,594 → 0,557 y 0,761 → 0,583.
+            - Los envasados solos no aportan.
+          - También se correlaciona con lo que el REM no anticipó (0,34).
+          - **Es la señal más prometedora para el mes en curso, pero con solo 20 meses.** Octubre 2026 (días 1-15): +1,98%. A m0 corregido: 1,40 → 1,63-1,72%.
+          - **En observación diaria (desde el 15-oct-2026):** sección 9 de `replicar_rem.py` ("termómetro del súper"). Muestra el SEPA del mes en curso y A m0 corregida hacia el REM y hacia el INDEC; sale también en `informe_general.txt`. No cambia el pronóstico oficial de A. Cada corrida queda en `datos\registro_termometro.csv`, con la prueba hacia adelante en la misma sección.
+          - **Siguiente paso:** conseguir la historia SEPA completa (huecos mar-jun 2026, 23-30 sep 2026 y mar-2018 a ago-2024) con un pedido de acceso a la información pública a la Secretaría de Comercio (Ley 27.275; recordatorio 16-oct 11:30). Marcos le preguntó a Enzo Notario si conoce a alguien con la base.
+        - **Conclusión:** en calma, el error de A en el mes en curso no se explica por un rubro suelto (frescos, regulados, carne). Lo que sí aporta es la canasta del supermercado.
       - **Pendiente (Marcos, 15-oct-2026): elecciones.** Seguir encuestas, sentimiento de mercado y noticias. Idea: un índice de noticias como señal de alerta adicional. Sin fuente elegida todavía.
         - Ejemplo de noticia que aportó Marcos (15-oct-2026): encuesta de Hugo Haime. El 76% prefiere una mejora de los ingresos antes que una baja de la inflación. Los bajos salarios son la principal preocupación. Un tercio de los votantes de Milei se siente decepcionado.
           - Tipo de señal: presión política por salarios/ingresos. Puede anticipar un cambio de prioridad de política (menos ancla, más ingresos) que el REM tardaría en incorporar.

@@ -37,7 +37,8 @@ MENSUAL = CARPETA / "sepa_indice_mensual.parquet"
 INFORME = CARPETA / "informe_indice_sepa.txt"
 REGIONES = ["GBA", "Pampeana", "Noreste", "Noroeste", "Cuyo", "Patagonia"]
 MIN_DIAS_MES = 15
-DIAS_DIARIO = 90       # el índice diario se arma con los últimos 90 días (base = primer día de la ventana)
+MIN_DIAS_25 = 12       # días con datos del 1 al 25 para calcular la variación "hasta el 25"
+DIAS_DIARIO = 90      # el índice diario se arma con los últimos 90 días (base = primer día de la ventana)
 
 # promociones que NO cuentan para el IPC (descuentos para grupos o con cantidad mínima)
 PROMO_EXCLUIDA = (r"tarjeta|banco|bancari|visa|master|amex|american|cabal|mercado ?pago|\bmodo\b|cuenta dni|\bbna\b|galicia|"
@@ -84,7 +85,7 @@ def actualizar_mapeo(dias):
     for d in dias:
         x = pd.read_parquet(RESUMEN / f"sepa_{d}.parquet", columns=["id_comercio", "producto", "descripcion", "cantidad", "unidad"])
         x["clave"] = x["id_comercio"].astype(str) + "|" + x["producto"].astype(str)
-        x = x.drop_duplicates("clave")
+        x = x[x["clave"].map(lambda c: isinstance(c, str))].drop_duplicates("clave")   # productos sin código: fuera
         nuevos.append(x[~x["clave"].isin(vistos)])
         vistos |= set(x["clave"])
     nuevos = pd.concat(nuevos).drop_duplicates("clave") if nuevos else pd.DataFrame()
@@ -96,7 +97,7 @@ def actualizar_mapeo(dias):
             mapa = pd.concat([mapa, asignados], ignore_index=True).drop_duplicates("clave")
             agregados = len(asignados)
         mapa.to_csv(MAPEO, index=False, encoding="utf-8-sig")
-    vistos_archivo.write_text("\n".join(sorted(vistos)), encoding="utf-8")
+    vistos_archivo.write_text("\n".join(sorted(v for v in vistos if isinstance(v, str))), encoding="utf-8")
     return mapa, len(nuevos), agregados
 
 
@@ -187,13 +188,20 @@ def main():
                            "group by 1 order by 1").df().set_index("mes")["n"]
     dias_mes.index = pd.PeriodIndex(dias_mes.index, freq="M")
     completos = [m for m, n in dias_mes.items() if n >= MIN_DIAS_MES]
+    # precio promedio del mes completo y del 1 al 25 (lo que se conoce al cerrar el REM, que releva los últimos días hábiles)
     prom = con.execute(f"""select strftime(fecha, '%Y-%m') as mes, item, any_value(region) as region,
-                                  any_value(producto_indec) as producto_indec, exp(avg(ln(precio_efectivo))) as precio
+                                  any_value(producto_indec) as producto_indec, exp(avg(ln(precio_efectivo))) as precio,
+                                  exp(avg(case when day(fecha) <= 25 then ln(precio_efectivo) end)) as precio25
                            from read_parquet('{glob}') where precio_efectivo > 0 group by 1, 2""").df()
+    dias25 = con.execute(f"select strftime(fecha, '%Y-%m') as mes, count(distinct fecha) as n from read_parquet('{glob}') "
+                         "where day(fecha) <= 25 group by 1").df().set_index("mes")["n"]
+    dias25.index = pd.PeriodIndex(dias25.index, freq="M")
     con.close()
     prom["mes"] = pd.PeriodIndex(prom["mes"], freq="M")
     mensual, clases_mes = [], []
-    for m1 in completos:
+    # meses para la variación hasta el 25: el mes anterior completo y al menos MIN_DIAS_25 días del 1 al 25 en el mes
+    meses_25 = [m for m in dias25.index if dias25[m] >= MIN_DIAS_25 and (m - 1) in completos]
+    for m1 in sorted(set(completos) | set(meses_25)):
         m0 = m1 - 1
         if m0 not in completos:
             continue
@@ -201,18 +209,28 @@ def main():
         b = prom[prom["mes"] == m1].set_index("item")
         b = b[b.index.isin(a.index)]
         b["rel"] = b["precio"] / a.reindex(b.index)
+        b["rel25"] = b["precio25"] / a.reindex(b.index)
         for reg in REGIONES:
             br = b[b["region"] == reg]
             if br.empty:
                 continue
-            por_var = br.groupby("producto_indec")["rel"].apply(jevons).dropna() * 100
-            clases, total, _ = agregar(por_var, reg, pond)
-            mensual.append({"mes": str(m1), "region": reg, "variacion_pct": total - 100, "n_items": len(br)})
-            clases_mes += [{"mes": str(m1), "region": reg, "clase": c, "variacion_pct": v - 100} for c, v in clases.items()]
+            fila = {"mes": str(m1), "region": reg, "variacion_pct": np.nan, "variacion_25_pct": np.nan, "n_items": len(br)}
+            if m1 in completos:
+                por_var = br.groupby("producto_indec")["rel"].apply(jevons).dropna() * 100
+                clases, total, _ = agregar(por_var, reg, pond)
+                fila["variacion_pct"] = total - 100
+                clases_mes += [{"mes": str(m1), "region": reg, "clase": c, "variacion_pct": v - 100} for c, v in clases.items()]
+            if m1 in meses_25:
+                pv25 = br.dropna(subset=["rel25"]).groupby("producto_indec")["rel25"].apply(jevons).dropna() * 100
+                if not pv25.empty:
+                    fila["variacion_25_pct"] = agregar(pv25, reg, pond)[1] - 100
+            mensual.append(fila)
     mensual_df = pd.DataFrame(mensual)
     if len(mensual_df):   # nacional = regiones con su peso oficial
+        prom_w = lambda q, c: float(np.dot(q["w"], q[c]) / q["w"].sum()) if q[c].notna().all() else np.nan
         nac = mensual_df.assign(w=mensual_df["region"].map(peso_region)).groupby("mes").apply(
-            lambda q: pd.Series({"variacion_pct": float(np.dot(q["w"], q["variacion_pct"]) / q["w"].sum()), "n_items": int(q["n_items"].sum())}))
+            lambda q: pd.Series({"variacion_pct": prom_w(q, "variacion_pct"), "variacion_25_pct": prom_w(q, "variacion_25_pct"),
+                                 "n_items": int(q["n_items"].sum())}))
         mensual_df = pd.concat([mensual_df, nac.reset_index().assign(region="Nacional")], ignore_index=True)
     mensual_df.to_parquet(MENSUAL, index=False)
     pd.DataFrame(clases_mes).to_parquet(CARPETA / "sepa_indice_mensual_clases.parquet", index=False)

@@ -62,14 +62,29 @@ def main():
         filas.append(fila("REM del BCRA", "BCRA (REM)", v, f"REM: {v} ({g['periodo_original'].nunique()} períodos pronosticados)",
                           "M (relevamiento)", g["mes_relevamiento"], "rem_normalizada.parquet"))
         filas[-1]["registros"] = len(g)
-    # 7) SEPA (precios de supermercados): días con resumen
+    # 7) SEPA (precios de supermercados): días con resumen; registros = filas (producto x cadena x bandera x región x día)
     res = sorted(Path("E:/SEPA/resumen").glob("sepa_*.parquet"))
     if res:
+        import pyarrow.parquet as pq
         dias = [p.stem.replace("sepa_", "") for p in res]
         filas.append(fila("Precios de supermercados (SEPA)", "Secretaría de Comercio (SEPA); historia 2024-26 vía preciazo",
-                          "SEPA resumen", "Precio mediano por producto x cadena x región (un archivo por día)", "D", dias,
+                          "SEPA resumen", f"Precio mediano por producto x cadena x región ({len(dias)} días)", "D", dias,
                           "E:\\SEPA\\resumen"))
-        filas[-1]["unidad"] = "días con datos (~1 millón de filas por día)"
+        filas[-1]["registros"] = sum(pq.ParquetFile(p).metadata.num_rows for p in res)
+        filas[-1]["unidad"] = "filas de resumen (cada día ~14 millones de precios crudos)"
+    # 8) frescos: Mercado Central, Precios del Central, hacienda MAG
+    for arch, conj, fuente, nom in [
+            ("mercado_central.parquet", "Mercado Central (frutas y hortalizas)", "CMCBA (2017-22 vía web.archive.org)",
+             "Precios mayoristas diarios por especie y variedad"),
+            ("preciosdelcentral.parquet", "Mercado Central (frutas y hortalizas)", "CMCBA vía preciosdelcentral.com.ar",
+             "Precios diarios por variedad, últimos 365 días"),
+            ("mag_precios.parquet", "Hacienda (MAG Cañuelas)", "Mercado Agroganadero S.A.",
+             "Precios de hacienda por categoría, mensual y hasta el día 25")]:
+        if (C / arch).exists():
+            x = pd.read_parquet(C / arch)
+            fechas = x["fecha"] if "fecha" in x.columns else pd.PeriodIndex(x["mes"], freq="M").to_timestamp()
+            filas.append(fila(conj, fuente, arch.replace(".parquet", ""), nom, "D" if "fecha" in x.columns else "M", fechas, arch))
+            filas[-1]["registros"] = len(x)
     z = sorted(Path("E:/SEPA/historico_zenodo").glob("precios_*.csv.gz"))
     if z:
         filas.append(fila("Precios de supermercados (SEPA)", "Zenodo (Daruich, Kozlowski, Vilhuber)", "SEPA 2016-2018",
@@ -88,6 +103,9 @@ def main():
     V["hasta"] = pd.to_datetime(V["hasta"]).dt.date
     R = V.groupby(["conjunto", "fuente"]).agg(variables=("id", "size"), desde=("desde", "min"), hasta=("hasta", "max"),
                                               registros=("registros", "sum")).reset_index().sort_values("registros", ascending=False)
+    R = pd.concat([R, pd.DataFrame([{"conjunto": "TOTAL", "fuente": "", "variables": int(R["variables"].sum()),
+                                     "desde": R["desde"].min(), "hasta": R["hasta"].max(), "registros": int(R["registros"].sum())}])],
+                  ignore_index=True)
     with pd.ExcelWriter(C / "inventario_variables.xlsx", engine="openpyxl") as x:
         R.to_excel(x, sheet_name="Resumen", index=False)
         V.to_excel(x, sheet_name="Variables", index=False)

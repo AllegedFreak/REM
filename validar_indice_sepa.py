@@ -22,6 +22,9 @@ except Exception:
 CARPETA = Path(__file__).resolve().parent / "datos"
 REG_ID = {"GBA": "gba", "Pampeana": "pampeana", "Noreste": "noreste", "Noroeste": "noroeste", "Cuyo": "cuyo", "Patagonia": "patagonia"}
 PESO_REGION = {"GBA": 0.4467, "Pampeana": 0.3419, "Noreste": 0.0451, "Noroeste": 0.0688, "Cuyo": 0.0518, "Patagonia": 0.0457}
+# clases donde el supermercado es representativo (productos envasados, de marca); el resto (carnes, pescado, frutas,
+# verduras, pan francés en 01.1.1) se compra sobre todo en carnicerías, verdulerías y panaderías
+ENVASADOS = {"01.1.4", "01.1.5", "01.1.8", "01.1.9", "01.2.1", "01.2.2", "02.1.2", "02.1.3", "05.6.1", "12.1.3"}
 SUSTITUTO = {"01.1.3": "01.1", "01.1.9": "01.1", "02.1.2": "02.1", "02.1.3": "02.1", "05.6.1": "05.6", "12.1.3": "12.1"}
 
 
@@ -81,6 +84,39 @@ def main():
                  f"{q['sepa'].corr(q['indec_alimentos']):.2f} | con nivel general {q['sepa'].corr(q['indec_general']):.2f}")
         L.append(f"   diferencia media {d.mean():+.2f} pp | diferencia absoluta media {d.abs().mean():.2f} pp | "
                  f"misma dirección del cambio mes a mes: {(np.sign(q['sepa'].diff()) == np.sign(q['indec_equivalente'].diff())).iloc[1:].mean():.0%}")
+    # ---- por clase y agregado de ENVASADOS (las clases donde el súper es representativo) ----
+    cl = pd.read_parquet(CARPETA / "sepa_indice_mensual_clases.parquet")
+    cl["mes"] = pd.PeriodIndex(cl["mes"], freq="M")
+    filas_c = []
+    for reg, rid in REG_ID.items():
+        for c in sorted(cl["clase"].unique()):
+            s = cl[(cl["region"] == reg) & (cl["clase"] == c)].set_index("mes")["variacion_pct"]
+            cod = c
+            v = var(f"indec_ipcap_{rid}_{cod}")
+            if v.empty:
+                cod = SUSTITUTO.get(c, c[:4])
+                v = var(f"indec_ipcap_{rid}_{cod}")
+            for m, x in s.items():
+                filas_c.append({"mes": m, "region": reg, "clase": c, "indec_cod": cod, "sepa": x, "indec": v.get(m, np.nan),
+                                "peso": float(pond.loc[c, reg]) if c in pond.index else np.nan})
+    K = pd.DataFrame(filas_c).dropna(subset=["indec"])
+    L += ["", "POR CLASE (todas las regiones juntas, ponderado por peso): correlación SEPA vs INDEC y diferencia absoluta media (pp)"]
+    for c, q in K.groupby("clase"):
+        tipo = "envasados" if c in ENVASADOS else "frescos/mostrador"
+        L.append(f"   {c} ({pond.loc[c, 'descripcion'][:40] if c in pond.index else ''}) [{tipo}]: corr {q['sepa'].corr(q['indec']):+.2f} | "
+                 f"dif. abs. {np.average((q['sepa'] - q['indec']).abs(), weights=q['peso']):.2f} | INDEC usado {q['indec_cod'].iloc[0]} (n={len(q)})")
+    E = K[K["clase"].isin(ENVASADOS)]
+    agg = E.groupby(["region", "mes"]).apply(lambda q: pd.Series({"sepa": np.average(q["sepa"], weights=q["peso"]),
+                                                                    "indec": np.average(q["indec"], weights=q["peso"])})).reset_index()
+    agg["w"] = agg["region"].map(PESO_REGION)
+    nac_e = agg.groupby("mes").apply(lambda q: pd.Series({"sepa": np.average(q["sepa"], weights=q["w"]),
+                                                          "indec": np.average(q["indec"], weights=q["w"])}))
+    nac_e.to_csv(CARPETA / "validacion_sepa_envasados.csv", encoding="utf-8-sig", float_format="%.3f")
+    L += ["", f"ENVASADOS, nacional ({len(nac_e)} meses): correlación {nac_e['sepa'].corr(nac_e['indec']):+.2f} | "
+              f"diferencia media {(nac_e['sepa'] - nac_e['indec']).mean():+.2f} pp | diferencia absoluta media "
+              f"{(nac_e['sepa'] - nac_e['indec']).abs().mean():.2f} pp | misma dirección del cambio "
+              f"{(np.sign(nac_e['sepa'].diff()) == np.sign(nac_e['indec'].diff())).iloc[1:].mean():.0%}"]
+    L.append(nac_e.round(2).to_string())
     L += ["", "Nacional, mes por mes:"]
     q = V[V["region"] == "Nacional"].sort_values("mes")[["mes", "sepa", "indec_equivalente", "indec_alimentos", "indec_general"]]
     L.append(q.round(2).to_string(index=False))

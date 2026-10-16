@@ -38,7 +38,11 @@ REGISTRO = D.CARPETA / "registro_pronosticos.csv"   # un renglón por corrida x 
 # mensual) en m0-m6 y ei_med (% anual) a 12 meses. "A sin EI" es el A anterior, para comparar.
 A_SIN_EI_MENSUAL = ["p1", "p2", "p3", "p12", "nuc1", "dev0", "dev1", "emiT12"]
 A_SIN_EI_12 = ["inf12", "inf3", "nuc3", "dev3", "emiT12", "base12"]
-A_MENSUAL = A_SIN_EI_MENSUAL + ["ei_med_m"]
+A_GENERAL_MENSUAL = A_SIN_EI_MENSUAL + ["ei_med_m"]   # A hasta el 16-oct-2026 ("A general"): inflación general de t-1..t-3
+# Desde el 16-oct-2026 (decisión de Marcos) A usa la NÚCLEO de los últimos 3 meses en lugar de la inflación general:
+# así un salto de tarifas (regulados) no se arrastra como si fuera a continuar (caso jun-2026). La estacionalidad (p12)
+# sigue con el general. En 2025-26: m1 0,41 -> 0,32 pp de distancia al REM; dentro de P10-P90 m1 38% -> 52%, m2 57% -> 81%
+A_MENSUAL = ["nuc1", "nuc_2", "nuc_3", "p12", "dev0", "dev1", "emiT12", "ei_med_m"]
 # desde el 15-oct-2026 el 12m de A incluye además la devaluación esperada a un año del dólar futuro (CEM, contrato a 9 meses
 # llevado a 12; datos desde 2020: el 12m de A se estima recién desde ~2022). "A 12m sin futuros" queda para comparar
 A_12_NIVELES = A_SIN_EI_12 + ["ei_med", "fut12"]      # versión lineal en niveles (hasta el 15-oct-2026)
@@ -47,9 +51,42 @@ A_12_SIN_FUT = A_SIN_EI_12 + ["ei_med"]
 # inflación de los últimos 12 meses, todos como log(1+x) x 100. En niveles, una recta estimada con inflaciones de 50-160%
 # subestimaba ~5-7 pp con inflaciones de 20% (2025-26); en logaritmos: distancia al REM 8,8 pp y 80% dentro de P10-P90
 A_12 = ["inf12", "ei_med_l", "fut12"]
-EN_LOG = lambda tipo, H, cols: tipo == "nivel" and H == "12m" and "ei_med_l" in cols   # cuándo se estima en logaritmos
+EN_LOG = lambda tipo, H, cols: tipo == "nivel" and H == "12m" and ("ei_med_l" in cols or "ei_prom_l" in cols)   # cuándo se estima en logaritmos
 B_MENSUAL = ["sorpresa", "dev0", "dev1"]
-B_12 = ["sorpresa", "dev0", "dev1"]
+B_12 = ["sorpresa", "dev0", "dev1", "dbrecha"]   # 16-oct-2026: + variación de la brecha; revisión en logaritmos (ver REV_LOG)
+B_12_PUNTOS = ["sorpresa", "dev0", "dev1"]          # B a 12 meses hasta el 15-oct-2026 (revisión en puntos), para comparar
+# B a 12 meses revisa el REM anterior EN LOGARITMOS (16-oct-2026): rev_l = log(1+REM12) - log(1+REM12 anterior), x100.
+# En 2025-26 la distancia al REM baja de 1,62 a 1,03 pp (REM anterior sin cambios: 1,18); en toda la muestra ~igual.
+REV_LOG = lambda tipo, H, cols: tipo == "revision" and H == "12m" and "dbrecha" in cols
+def y_de(tipo, H, cols):
+    if tipo == "nivel":
+        return "rem_l" if EN_LOG(tipo, H, cols) else "rem"
+    return "rev_l" if REV_LOG(tipo, H, cols) else "rev"
+VARIANTES_MCO = {"A MCO"}   # variantes de A que se siguen estimando por MCO (para comparar)
+
+
+def estimar(nom, tipo, H, X, y, x0):
+    """A mensual (nivel, m0-m6) se estima con regresión ROBUSTA de Huber desde el 16-oct-2026: le resta peso a los meses
+    extremos (2023-24) que deformaban los coeficientes. Prueba en tiempo real: 2019-24 distancia al REM m1 1,01 -> 0,93,
+    m2 1,11 -> 0,95; 2025-26 error contra el IPC real m2 0,66 -> 0,58, m4 0,49 -> 0,40. El 12m (en logaritmos) y B
+    (revisión) siguen con MCO."""
+    if tipo == "nivel" and H != "12m" and nom not in VARIANTES_MCO:
+        try:
+            Xc = np.column_stack([np.ones(len(X)), X])
+            b = sm.RLM(y, Xc, M=sm.robust.norms.HuberT()).fit().params
+            return float(np.r_[1, x0] @ b)
+        except Exception:
+            pass
+    return ols_pred(X, y, x0)
+
+
+def deshacer(tipo, H, cols, p, rem_ant):
+    """Pasa la predicción de la regresión a % (nivel o revisión, en puntos o en logaritmos)."""
+    if tipo == "nivel":
+        return np.expm1(p / 100) * 100 if EN_LOG(tipo, H, cols) else p
+    if REV_LOG(tipo, H, cols):
+        return np.expm1((np.log1p(rem_ant / 100) * 100 + p) / 100) * 100
+    return rem_ant + p
 # salarios (índice de salarios INDEC, total registrado): en el relevamiento de t el último publicado es el de t-2
 #   sal1 = variación del dato recién publicado (t-2); sal3 = variación mensual promedio t-4..t-2; sal12 = interanual a t-2
 VARIANTES = {   # nombre: (tipo, columnas mensuales, columnas 12 meses)
@@ -60,6 +97,7 @@ VARIANTES = {   # nombre: (tipo, columnas mensuales, columnas 12 meses)
     "A con futuros 12m": ("nivel", A_MENSUAL, A_12),      # igual a "A": nombre para la prueba de la sección 4b
     "A+salarios": ("nivel", A_MENSUAL + ["sal3"], A_12 + ["sal12"]),
     "B": ("revision", B_MENSUAL, B_12),
+    "B 12m puntos": ("revision", B_MENSUAL, B_12_PUNTOS),
     "B+salarios": ("revision", B_MENSUAL + ["sal1"], B_12 + ["sal1"]),
     # brecha cambiaria: CCL (argentinadatos, sin días congelados) / A3500 - 1, en %; brecha0 = mes t hasta el día 25,
     # dbrecha = brecha0 - brecha del mes t-1 completo
@@ -99,6 +137,36 @@ NUEVAS = {"A+IPIM": (["ipim1", "ipim3"], ["ipim12"]), "A+combustibles": (["dcomb
           "A+fiscal": (["fiscal12"], ["fiscal12"]), "A+RIPTE": (["ripte3"], ["ripte12"]), "A+ITCRM": (["itcrm0"], ["itcrm0"]),
           "A+commodities": (["alim12", "energ12"], ["alim12", "energ12"])}
 NUEVAS_B = {"B+IPIM": ["ipim1"], "B+combustibles": ["dcomb0"], "B+RIPTE": ["ripte1"]}
+# A con NÚCLEO en lugar de la inflación general de los últimos 3 meses (16-oct-2026): para que un salto de tarifas
+# (regulados) no se arrastre como si fuera a continuar. La estacionalidad (p12) sigue con el general.
+# Desde el 16-oct-2026 ese es A (A_MENSUAL). Quedan para comparar: "A general" (el A anterior) y "A núcleo+reg".
+VARIANTES["A general"] = ("nivel", A_GENERAL_MENSUAL, A_12)
+VARIANTES["A MCO"] = ("nivel", A_MENSUAL, A_12)        # mismo A estimado por MCO (hasta el 16-oct-2026)
+# "I" = NUESTRO PRONÓSTICO DE LA INFLACIÓN (16-oct-2026; objetivo de Marcos: ganarle al REM pronosticando la inflación).
+# Igual que A (robusta, núcleo) pero con el PROMEDIO de las expectativas de los hogares (se mueve de forma continua; la
+# mediana queda clavada de a 5 puntos). Se entrena igual que A (con el REM como "maestro", no como dato de entrada) y se
+# evalúa contra el IPC real (sección 10). En 2025-26: error contra el IPC real m3 0,36 · m4 0,26 · m6 0,33 (REM 0,53 · 0,54
+# · 0,73); 12m 3,4 pp (REM 10,8). No usa el REM como variable.
+I_MENSUAL = [c if c != "ei_med_m" else "ei_prom_m" for c in A_MENSUAL]
+I_12 = ["inf12", "ei_prom_l", "fut12"]
+VARIANTES["I"] = ("nivel", I_MENSUAL, I_12)
+PRUEBAS["A MCO"] = ("A", [], [])
+VARIANTES["A núcleo+reg"] = ("nivel", A_MENSUAL + ["reg1", "est1"], A_12)
+PRUEBAS["A general"] = ("A", ["p1", "p2", "p3"], [])
+PRUEBAS["A núcleo+reg"] = ("A", ["reg1", "est1"], [])
+# estacionalidad sin arrastrar tarifazos (16-oct-2026): p12 (general, mismo mes del año anterior) reemplazado por
+# p12n (núcleo) o por estac3 (desvío típico del mes, promedio de 3 años)
+VARIANTES["A est.núcleo"] = ("nivel", [c if c != "p12" else "p12n" for c in A_MENSUAL], A_12)
+VARIANTES["A est.3años"] = ("nivel", [c if c != "p12" else "estac3" for c in A_MENSUAL], A_12)
+PRUEBAS["A est.núcleo"] = ("A", ["p12n"], [])
+PRUEBAS["A est.3años"] = ("A", ["estac3"], [])
+# expectativa de los hogares relativa (16-oct-2026): en lugar del nivel de la expectativa, la inflación de 12 meses
+# (mensualizada) más la diferencia entre la expectativa y esa inflación (así el modelo puede pesar distinto cada parte)
+VARIANTES["A EI relativa"] = ("nivel", [c for c in A_MENSUAL if c != "ei_med_m"] + ["inf12m", "ei_gap"], A_12)
+PRUEBAS["A EI relativa"] = ("A", ["inf12m", "ei_gap"], [])
+# hacienda MAG Cañuelas (15-oct-2026): variación de novillitos+vaquillonas del mes hasta el día 25 y del mes anterior
+NUEVAS["A+carne"] = (["carne25", "carne1"], [])
+NUEVAS_B["B+carne"] = ["carne25"]
 # futuros de dólar (CEM, desde ene-2020): A = devaluación esperada para el mes pronosticado (12m: a un año);
 # B = cambio de esa expectativa contra la curva del mes anterior. Muestra corta: no entran en la muestra común de la sección 1
 NUEVAS["A+futuros"] = (["fut_m"], [])                             # (el 12m de A ya incluye fut12)
@@ -114,6 +182,8 @@ for _n, _c in NUEVAS_B.items():
     PRUEBAS[_n] = ("B", _c, _c)
 VARIANTES["B+futuros"] = ("revision", B_MENSUAL + ["dfut_m"], B_12 + ["dfut12"])   # a 12m: cambio de la devaluación esperada a un año
 PRUEBAS["B+futuros"] = ("B", ["dfut_m"], ["dfut12"])
+# sin columnas repetidas (p. ej. "B+brecha": desde el 16-oct-2026 B a 12m ya incluye dbrecha)
+VARIANTES = {k: (tp, list(dict.fromkeys(cm)), list(dict.fromkeys(c12))) for k, (tp, cm, c12) in VARIANTES.items()}
 
 
 # ---------- métodos de estimación para A (15-oct-2026) ----------
@@ -256,6 +326,147 @@ def alertas(T, O, t, rasgos, hist_s, fu_todo):
     return L
 
 
+REGISTRO_TERMOMETRO = D.CARPETA / "registro_termometro.csv"
+REGISTRO_INFLACION = D.CARPETA / "registro_inflacion.csv"
+I_HOY = {}   # pronóstico de la inflación ("I") del relevamiento en curso, por horizonte (lo llena la sección 5)
+
+
+def pronostico_inflacion(O, t, lp, rem12):
+    """Sección 10 (desde el 16-oct-2026): NUESTRO PRONÓSTICO DE LA INFLACIÓN ("I"). Objetivo de Marcos: ganarle al REM
+    pronosticando la inflación (el IPC que efectivamente se publica). I = A con el PROMEDIO de las expectativas de los
+    hogares (VARIANTES["I"]); en el mes en curso, corregido con el termómetro del súper. No usa el REM como variable.
+    Probado y descartado (16-oct-2026): entrenar contra el IPC real (aprende tarde), corregir por sesgo reciente, combinar
+    con inercia pura, reglas de semáforo o de sesgo del REM. Evaluación: error contra el IPC real, % de meses en que gana
+    y Diebold-Mariano (HLN) contra el REM. El pronóstico de cada corrida va a datos\\registro_inflacion.csv."""
+    L = ["", "10) NUESTRO PRONÓSTICO DE LA INFLACIÓN (objetivo: ganarle al REM pronosticando el IPC real)",
+         "    I = A con el promedio de las expectativas de los hogares (mes en curso: + termómetro del súper). Sin usar el REM.",
+         "    Error medio contra el IPC real (pp), % de meses en que I gana y p de Diebold-Mariano contra el REM (p<0,05 = ventaja real):"]
+    P = np.exp(lp)
+    real12 = pd.Series({o: (P.get(o + 12) / P.get(o) - 1) * 100 for o in P.index if (o + 12) in P.index})
+    E = O[["origen", "H", "I", "rem", "real"]].copy()
+    m12 = E["H"] == "12m"
+    E.loc[m12, "real"] = E.loc[m12, "origen"].map(real12)
+    orden = [f"m{h}" for h in HORIZONTES] + ["12m"]
+    for nom, mask in (("2019-2024", E["origen"] <= CORTE_SELECCION), ("2025-26 (régimen actual)", E["origen"] > CORTE_SELECCION),
+                      ("Todo", E["origen"] > pd.Period("2000-01", "M"))):
+        q = E[mask].dropna(subset=["real", "rem", "I"])
+        hs = [H for H in orden if (q.H == H).sum() >= 3]
+        if not hs:
+            continue
+        L += [f"    {nom}:", f"      {'':12}" + "".join(f"{H:>7}" for H in hs)]
+        for etq, c in (("I", "I"), ("REM", "rem")):
+            L.append(f"      {etq:12}" + "".join(f"{(q[q.H == H][c] - q[q.H == H]['real']).abs().mean():7.2f}" for H in hs))
+        L.append(f"      {'I gana en':12}" + "".join(
+            f"{((q[q.H == H]['I'] - q[q.H == H]['real']).abs() < (q[q.H == H]['rem'] - q[q.H == H]['real']).abs()).mean():7.0%}" for H in hs))
+        ps = []
+        for H in hs:
+            g = q[q.H == H].sort_values("origen")
+            h = 12 if H == "12m" else max(int(H[1:]), 1)
+            try:
+                ps.append(f"{diebold_mariano((g['I'] - g['real']).values, (g['rem'] - g['real']).values, h):7.2f}")
+            except Exception:
+                ps.append(f"{'-':>7}")
+        L.append(f"      {'p (DM)':12}" + "".join(ps))
+    # pronóstico de hoy: I (sección 5); en m0, corregido hacia el INDEC con el termómetro del súper
+    corr = ""
+    p_hoy = dict(I_HOY)
+    try:
+        M = pd.read_parquet(D.CARPETA / "sepa_indice_mensual.parquet")
+        M = M[M["region"] == "Nacional"].copy()
+        M.index = pd.PeriodIndex(M["mes"], freq="M")
+        o = O[O.H == "m0"].copy()
+        o.index = pd.PeriodIndex(o["origen"], freq="M")
+        X = o[["I", "real"]].join(M["variacion_25_pct"]).dropna()
+        s_t = M["variacion_25_pct"].get(t, np.nan)
+        if len(X) >= 10 and not np.isnan(s_t) and not np.isnan(p_hoy.get("m0", np.nan)):
+            b = sm.OLS(X["real"] - X["I"], sm.add_constant(X[["variacion_25_pct"]])).fit().params
+            p_hoy["m0"] = p_hoy["m0"] + b["const"] + b["variacion_25_pct"] * s_t
+            corr = f" (mes en curso con termómetro del súper {s_t:+.2f}%)"
+    except Exception:
+        pass
+    reg, linea = [], []
+    for H in orden:
+        p = p_hoy.get(H, np.nan)
+        if np.isnan(p):
+            continue
+        mes = "próx. 12m" if H == "12m" else str(t + int(H[1:]))
+        linea.append(f"{mes}: {p:.2f}")
+        reg.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "H": H,
+                    "objetivo": "12m" if H == "12m" else mes, "pronostico_inflacion": p,
+                    "fuente": "I + termómetro" if (H == "m0" and corr) else "I"})
+    if reg:
+        pd.DataFrame(reg).to_csv(REGISTRO_INFLACION, mode="a", header=not REGISTRO_INFLACION.exists(), index=False,
+                                 encoding="utf-8-sig", float_format="%.4f")
+        L.append(f"    Pronóstico de la inflación hoy{corr} (% mensual; 12m en %): " + " | ".join(linea))
+    # prueba hacia adelante: último pronóstico registrado dentro de cada mes, contra el IPC publicado y el REM
+    if REGISTRO_INFLACION.exists():
+        ri = pd.read_csv(REGISTRO_INFLACION, encoding="utf-8-sig")
+        ri = ri[pd.to_datetime(ri["fecha_corrida"]).dt.to_period("M").astype(str) == ri["relevamiento"]]
+        ri = ri.sort_values("fecha_corrida").groupby(["relevamiento", "H"]).last().reset_index()
+        ri["origen"] = pd.PeriodIndex(ri["relevamiento"], freq="M")
+        ev = ri.merge(E[["origen", "H", "rem", "real"]], on=["origen", "H"]).dropna(subset=["real", "rem"])
+        if len(ev):
+            L.append(f"    Prueba hacia adelante ({len(ev)} pronósticos con IPC publicado): error I "
+                     f"{(ev.pronostico_inflacion - ev.real).abs().mean():.2f} | REM {(ev.rem - ev.real).abs().mean():.2f}")
+        else:
+            L.append("    Prueba hacia adelante: todavía no hay meses con IPC publicado desde que se registra.")
+    return L
+
+
+def termometro(O, t):
+    """Sección 9 (desde el 15-oct-2026, en observación): termómetro del súper. Variación de la canasta SEPA del mes en
+    curso (días 1 a 25, o hasta hoy) contra el mes anterior completo, y A del mes en curso (m0) corregida con esa señal.
+    La corrección (A + a + b x termómetro) se estima con todos los meses en que hay termómetro y REM publicado. Hacia
+    el REM y hacia la inflación del INDEC por separado. NO cambia el pronóstico oficial de A: solo se registra para
+    evaluarlo hacia adelante (datos\\registro_termometro.csv)."""
+    L = ["", f"9) TERMÓMETRO DEL SÚPER (en observación): precios de supermercados SEPA del mes en curso ({t})"]
+    try:
+        M = pd.read_parquet(D.CARPETA / "sepa_indice_mensual.parquet")
+    except Exception as e:
+        return L + [f"   Sin índice SEPA ({type(e).__name__})."]
+    M = M[M["region"] == "Nacional"].copy()
+    M.index = pd.PeriodIndex(M["mes"], freq="M")
+    s_t = M["variacion_25_pct"].get(t, np.nan)
+    o = O[O.H == "m0"].copy()
+    o.index = pd.PeriodIndex(o["origen"], freq="M")
+    X = o[["A", "rem", "real"]].join(M["variacion_25_pct"]).dropna(subset=["variacion_25_pct", "rem", "A"])
+    if np.isnan(s_t) or len(X) < 10:
+        return L + [f"   Todavía no hay dato del mes en curso o hay pocos meses para estimar ({len(X)})."]
+    a_t = np.nan
+    if REGISTRO.exists():
+        rg = pd.read_csv(REGISTRO, encoding="utf-8-sig")
+        rg = rg[(rg["relevamiento"] == str(t)) & (rg["H"] == "m0")]
+        a_t = rg["A"].iloc[-1] if len(rg) else np.nan
+    res = {}
+    for obj, col in (("REM", "rem"), ("INDEC", "real")):
+        q = X.dropna(subset=[col])
+        b = sm.OLS(q[col] - q["A"], sm.add_constant(q[["variacion_25_pct"]])).fit()
+        res[obj] = (a_t + b.params["const"] + b.params["variacion_25_pct"] * s_t, b.params["variacion_25_pct"],
+                    b.tvalues["variacion_25_pct"], len(q))
+    L += [f"   La canasta del súper viene subiendo {s_t:+.2f}% este mes (promedio del 1 al 25, o hasta hoy, contra el mes anterior).",
+          f"   A del mes en curso, sin corregir: {a_t:.2f}%",
+          f"   A corregida hacia el REM:   {res['REM'][0]:.2f}%   (b {res['REM'][1]:.2f}, t {res['REM'][2]:.1f}, {res['REM'][3]} meses)",
+          f"   A corregida hacia el INDEC: {res['INDEC'][0]:.2f}%   (b {res['INDEC'][1]:.2f}, t {res['INDEC'][2]:.1f}, {res['INDEC'][3]} meses)",
+          "   (No reemplaza a A: se registra para ver, mes a mes, si la corrección acierta.)"]
+    fila = pd.DataFrame([{"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t),
+                          "termometro_pct": s_t, "A_m0": a_t, "A_corr_rem": res["REM"][0], "A_corr_indec": res["INDEC"][0],
+                          "meses_estimacion": res["REM"][3]}])
+    fila.to_csv(REGISTRO_TERMOMETRO, mode="a", header=not REGISTRO_TERMOMETRO.exists(), index=False,
+                encoding="utf-8-sig", float_format="%.4f")
+    # evaluación hacia adelante: último registro de cada mes ya cerrado contra el REM y el INDEC publicados
+    rt = pd.read_csv(REGISTRO_TERMOMETRO, encoding="utf-8-sig")
+    rt = rt[pd.to_datetime(rt["fecha_corrida"]).dt.to_period("M").astype(str) == rt["relevamiento"]]
+    rt = rt.sort_values("fecha_corrida").groupby("relevamiento").last()
+    rt.index = pd.PeriodIndex(rt.index, freq="M")
+    ev = rt.join(o[["rem", "real"]]).dropna(subset=["rem"])
+    if len(ev):
+        L.append(f"   Prueba hacia adelante ({len(ev)} meses): |A-REM| {(ev.A_m0 - ev.rem).abs().mean():.2f} -> corregida "
+                 f"{(ev.A_corr_rem - ev.rem).abs().mean():.2f}")
+    else:
+        L.append("   Prueba hacia adelante: todavía no hay meses cerrados registrados.")
+    return L
+
+
 def main():
     # ---------- datos ----------
     pr = D.precios()
@@ -264,6 +475,9 @@ def main():
     pi = ipc["ipc_general_indice_var_mensual"].dropna().combine_first(pr["oficial"])     # lo que veían los analistas
     nuc = ipc["ipc_nucleo_indice_var_mensual"].dropna()
     real = ipc["ipc_general_indice_var_mensual"].dropna()
+    # desvío de cada mes respecto del promedio de los 12 meses que terminan en él (estacionalidad sin la tendencia del año;
+    # solo usa meses ya publicados, sin mirar hacia adelante)
+    desvio12 = pi - pi.rolling(12, min_periods=12).mean()
     lp = np.log(D.indice(pi))
     lnuc = np.log(D.indice(nuc))
     diaria = pd.read_parquet(D.CARPETA / "bcra_series.parquet")
@@ -339,6 +553,18 @@ def main():
     def serie_m(sid):
         s = hist_s[hist_s["id"] == sid]
         return pd.Series(s["valor"].values, index=pd.to_datetime(s["fecha"]).dt.to_period("M")).groupby(level=0).last().sort_index()
+    # hacienda MAG Cañuelas (novillitos + vaquillonas): variación del mes hasta el día 25 contra el mes anterior completo
+    try:
+        mg = pd.read_parquet(D.CARPETA / "mag_precios.parquet")
+        mg = mg[mg["categoria"].isin(["NOVILLITOS", "VAQUILLONAS"])]
+        mg["pk"] = mg["promedio"] * mg["kgs"]
+        p_mag = mg.groupby(["tramo", "mes"])[["pk", "kgs"]].sum()
+        p_mag = (p_mag["pk"] / p_mag["kgs"]).unstack(0)
+        p_mag.index = pd.PeriodIndex(p_mag.index, freq="M")
+        mag = pd.DataFrame({"consumo": np.log(p_mag["mes"]).diff() * 100,
+                            "consumo_25": (np.log(p_mag["hasta25"]) - np.log(p_mag["mes"].shift(1))) * 100})
+    except FileNotFoundError:
+        mag = pd.DataFrame(columns=["consumo", "consumo_25"])
     lipim = np.log(serie_m("indec_ipim_ng_nivel_general"))
     lripte = np.log(serie_m("datosgob_158.1_REPTE_0_0_5"))
     primario12 = serie_m("datosgob_452.3_RESULTADO_RIO_0_M_18_54").rolling(12).sum()   # 12 meses completos o vacío
@@ -413,6 +639,18 @@ def main():
                 "fut_m": fut_mes(t, t + h), "dfut_m": fut_mes(t, t + h) - fut_mes(t - 1, t + h),
                 "fut12": fut12(t), "dfut12": fut12(t) - fut12(t - 1),
                 "ei_med_l": np.log1p(ei["mediana"].get(t, np.nan) / 100) * 100,
+                "ei_prom_l": np.log1p(ei["promedio"].get(t, np.nan) / 100) * 100,
+                "carne25": mag["consumo_25"].get(t, np.nan), "carne1": mag["consumo"].get(t - 1, np.nan),
+                "nuc_2": nuc.get(t - 2, np.nan), "nuc_3": nuc.get(t - 3, np.nan),
+                # estacionalidad del mes pronosticado (t+h): núcleo del mismo mes del año anterior, y desvío típico de ese
+                # mes respecto del promedio de su año, promediado en los últimos 3 años (diluye un tarifazo de un solo año)
+                "p12n": nuc.get(t + h - 12, np.nan),
+                # expectativa de los hogares RELATIVA a la inflación de los últimos 12 meses (en log, mensualizada): cuánto
+                # más pesimistas que la inflación actual están los hogares
+                "inf12m": d(t - 1, t - 13) / 12,
+                "ei_gap": np.log1p(ei["mediana"].get(t, np.nan) / 100) * 100 / 12 - d(t - 1, t - 13) / 12,
+                "estac3": np.nanmean([desvio12.get(t + h - 12 * y, np.nan) for y in (1, 2, 3)])
+                if any(not np.isnan(desvio12.get(t + h - 12 * y, np.nan)) for y in (1, 2, 3)) else np.nan,
                 "fut_m_tope": min(fut_mes(t, t + h), TOPE_FUT), "fut_prom": min(fut_prom(t, t + h), TOPE_FUT),
                 "fut12_tope": min(fut12(t), TOPE_FUT * 12)}
 
@@ -429,6 +667,7 @@ def main():
     T = pd.DataFrame(filas).dropna(subset=["rem"])
     T["rev"] = T["rem"] - T["rem_ant"]
     T["rem_l"] = np.log1p(T["rem"] / 100) * 100          # objetivo en logaritmos (12m de A)
+    T["rev_l"] = T["rem_l"] - np.log1p(T["rem_ant"] / 100) * 100   # revisión en logaritmos (12m de B)
     T.to_csv(D.CARPETA / "replica_rem_variables.csv", index=False, encoding="utf-8-sig", float_format="%.5f")   # para diagnósticos
 
     # ---------- réplica en tiempo real ----------
@@ -442,16 +681,13 @@ def main():
                    **{k: fila.get(k, np.nan) for k in ("percentil_10", "percentil_25", "percentil_75", "percentil_90")}}
             for nom, (tipo, cm, c12) in VARIANTES.items():
                 cols = c12 if H == "12m" else cm
-                log = EN_LOG(tipo, H, cols)
-                y = ("rem_l" if log else "rem") if tipo == "nivel" else "rev"
+                y = y_de(tipo, H, cols)
                 tb = hist.dropna(subset=cols + [y])
                 necesarios = cols + ([] if tipo == "nivel" else ["rem_ant"])
                 if len(tb) < MIN_FILAS or fila[necesarios].isna().any():
                     continue
-                pred = ols_pred(tb[cols].values.astype(float), tb[y].values.astype(float), fila[cols].values.astype(float))
-                if log:
-                    pred = np.expm1(pred / 100) * 100                  # de log x 100 a %
-                res[nom] = pred if tipo == "nivel" else fila["rem_ant"] + pred
+                pred = estimar(nom, tipo, H, tb[cols].values.astype(float), tb[y].values.astype(float), fila[cols].values.astype(float))
+                res[nom] = deshacer(tipo, H, cols, pred, fila["rem_ant"])
             for nom, (base_nom, semivida, lam) in METODOS.items():
                 tipo, cm, c12 = VARIANTES[base_nom]
                 cols = c12 if H == "12m" else cm
@@ -521,7 +757,7 @@ def main():
         q = T[T.H == H]
         for nom, (tipo, cm, c12) in VARIANTES.items():
             cols = c12 if H == "12m" else cm
-            y = ("rem_l" if EN_LOG(tipo, H, cols) else "rem") if tipo == "nivel" else "rev"
+            y = y_de(tipo, H, cols)
             d = q.dropna(subset=cols + [y])
             if len(d) < 30:
                 continue
@@ -541,7 +777,7 @@ def main():
             h = 12 if H == "12m" else int(H[1:])
             tipo, cm, c12 = VARIANTES[nom]
             cols, nuevas = (c12 if H == "12m" else cm), (cols_12 if H == "12m" else cols_m)
-            y = ("rem_l" if EN_LOG(tipo, H, cols) else "rem") if tipo == "nivel" else "rev"
+            y = y_de(tipo, H, cols)
             q = T[T.H == H].dropna(subset=cols + [y])
             if len(q) < 30:
                 continue
@@ -555,7 +791,7 @@ def main():
                      f"distancia al REM {d0:.3f} -> {d1:.3f} ({(d1 / d0 - 1) * 100:+.1f}%), p={p:.3f} (n={len(o)})")
 
     # ---------- 6) método de estimación de A (selección hasta CORTE_SELECCION; prueba 2025-26 reservada) ----------
-    ver_prueba = "--ver-prueba" in sys.argv
+    ver_prueba = True   # desde el 16-oct-2026 (Marcos): 2025-26 se usa para modelar; la prueba limpia es hacia adelante (sección 7)
     met = list(METODOS)
     ei_o = T[T.H == "m1"].set_index("origen")["ei_med_m"]
     piv = O[O.H.isin([f"m{h}" for h in range(1, 7)])].pivot_table(index="origen", columns="H", values=met)
@@ -628,16 +864,16 @@ def main():
           "   ridgeL = penalización que achica coeficientes inestables (variables estandarizadas). Distancia al REM en pp.",
           "   12m dir = regresión directa del REM a 12 meses; cad6 = encadenando m1..m6 y repitiendo m6 para los meses 7-12;",
           "   cadEI = encadenando m1..m6 y usando la expectativa de los hogares para los meses 7-12.",
-          f"   REGLA: elegir mirando SOLO el período de selección (hasta {CORTE_SELECCION}). 2025-2026 se muestra con --ver-prueba."]
+          f"   Se muestran los dos períodos: hasta {CORTE_SELECCION} y desde {CORTE_SELECCION + 1} (régimen actual). La prueba limpia es hacia adelante (sección 7)."]
     bloque(f"Período de SELECCIÓN (hasta {CORTE_SELECCION}):", O["origen"] <= CORTE_SELECCION, cad.index <= CORTE_SELECCION)
     if ver_prueba:
-        bloque(f"Período de PRUEBA (desde {CORTE_SELECCION + 1}) — mirar una sola vez:", O["origen"] > CORTE_SELECCION, cad.index > CORTE_SELECCION)
+        bloque(f"Régimen actual (desde {CORTE_SELECCION + 1}):", O["origen"] > CORTE_SELECCION, cad.index > CORTE_SELECCION)
     else:
         L.append(f"   Período de PRUEBA (desde {CORTE_SELECCION + 1}): reservado (correr con --ver-prueba al final).")
     L += ["", "6b) GLIDE PATH para los próximos 12 meses (modelo A): meses 1-6 = pronóstico mensual; meses 7-12 planean hacia un ancla."]
     tabla_glide(f"Período de SELECCIÓN (hasta {CORTE_SELECCION})", glide.index <= CORTE_SELECCION)
     if ver_prueba:
-        tabla_glide(f"2025-2026 (ya mirado una vez el 15-oct-2026: NO es prueba limpia)", glide.index > CORTE_SELECCION)
+        tabla_glide(f"2025-2026 (régimen actual)", glide.index > CORTE_SELECCION)
 
     # ---------- 5) pronóstico con los datos de hoy (próximo relevamiento del REM, todavía no publicado) ----------
     t = pd.Period(pd.Timestamp.today(), "M")
@@ -668,22 +904,22 @@ def main():
                 fila["ei_med"] = ei["mediana"].get(t - 1, np.nan)
                 fila["ei_med_l"] = np.log1p(fila["ei_med"] / 100) * 100
                 fila["ei_med_m"] = ei_m["mediana"].get(t - 1, np.nan)
+                fila["ei_gap"] = fila["ei_med_l"] / 12 - fila["inf12m"]
+                fila["ei_prom_m"] = ei_m["promedio"].get(t - 1, np.nan)
+                fila["ei_prom_l"] = np.log1p(ei["promedio"].get(t - 1, np.nan) / 100) * 100
             th = T[T.H == H]
             insumos.append({"relevamiento": str(t), "H": H, **fila.to_dict()})
             preds = {}
-            for nom in ("B", A_PRONOSTICO):   # A sin salarios: el dato de t-2 todavía puede no estar publicado
+            for nom in ("B", A_PRONOSTICO, "I"):   # A sin salarios: el dato de t-2 todavía puede no estar publicado
                 tipo, cm, c12 = VARIANTES[nom]
                 cols = c12 if H == "12m" else cm
-                log = EN_LOG(tipo, H, cols)
-                y = ("rem_l" if log else "rem") if tipo == "nivel" else "rev"
+                y = y_de(tipo, H, cols)
                 tb = th.dropna(subset=cols + [y])
                 if len(tb) < MIN_FILAS or fila[cols + ([] if tipo == "nivel" else ["rem_ant"])].isna().any():
                     preds[nom] = np.nan
                     continue
-                p = ols_pred(tb[cols].values.astype(float), tb[y].values.astype(float), fila[cols].values.astype(float))
-                if log:
-                    p = np.expm1(p / 100) * 100
-                preds[nom] = p if tipo == "nivel" else fila["rem_ant"] + p
+                p = estimar(nom, tipo, H, tb[cols].values.astype(float), tb[y].values.astype(float), fila[cols].values.astype(float))
+                preds[nom] = deshacer(tipo, H, cols, p, fila["rem_ant"])
             # rangos con errores RELATIVOS (cociente), para que no los inflen los años de inflación alta
             hist = O[(O.H == H)].dropna(subset=["B", "rem"])
             ratio_b = hist["B"] / hist["rem"]                          # réplica / REM
@@ -694,6 +930,7 @@ def main():
             rango_inf = f"{lo_inf:5.2f} a {hi_inf:5.2f}" if not np.isnan(lo_inf) else "-"
             L.append(f"   {mes:9} {fila['rem_ant']:12.2f} | {preds['B']:6.2f} {lo_rem:7.2f} a {hi_rem:6.2f} | "
                      f"{preds[A_PRONOSTICO]:16.2f} | {rango_inf:>22}")
+            I_HOY[H] = preds.get("I", np.nan)
             registro.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "H": H,
                              "objetivo": "12m" if H == "12m" else str(t + h), "rem_anterior": fila["rem_ant"],
                              "B": preds["B"], "B_rango_bajo": lo_rem, "B_rango_alto": hi_rem,
@@ -733,6 +970,8 @@ def main():
 
     # ---------- 8) alertas: ¿este mes puede fallar nuestro pronóstico del REM? ----------
     L += alertas(T, O, t, rasgos, hist_s, fu_todo=pd.read_parquet(D.CARPETA / "dolar_futuro_cem.parquet"))
+    L += termometro(O, t)
+    L += pronostico_inflacion(O, t, lp, rem12)
     texto = "\n".join(L)
     print(texto)
     INFORME.write_text(texto, encoding="utf-8")
