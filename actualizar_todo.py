@@ -32,13 +32,21 @@ PASOS = [
     ("Series históricas completas (semanal)", "guardar_historicas.py", "informe_historicas.txt"),   # al final: arma la base DuckDB con todo
     ("Mercado Central: precios mayoristas de frutas y hortalizas", "actualizar_mercado_central.py", "informe_mercado_central.txt"),
     ("Hacienda (MAG Cañuelas)", "actualizar_mag.py", "informe_mag.txt"),
+    ("Actividad (INDEC): PIB desestacionalizado y EMAE", "actualizar_actividad.py", "informe_actividad.txt"),
+    ("Pronóstico del PIB", "replicar_pib.py", "informe_pib.txt"),
+    ("Pronóstico del tipo de cambio", "replicar_tc.py", "informe_tc.txt"),   # antes de la inflación: I usa el dólar esperado
+    ("Licitaciones del Tesoro (colocaciones de deuda)", "actualizar_licitaciones.py", "informe_licitaciones.txt"),
+    ("Pronóstico de la tasa (TAMAR)", "replicar_tasa.py", "informe_tasa.txt"),   # usa las licitaciones
+    ("Pronóstico del resultado primario (IMIG)", "replicar_fiscal.py", "informe_fiscal.txt"),
+    ("Estimaciones agrícolas (Ministerio de Agricultura)", "actualizar_estimaciones_agricolas.py", "informe_estimaciones_agricolas.txt"),
+    ("Pronóstico de exportaciones e importaciones", "replicar_comercio.py", "informe_comercio.txt"),
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
     ("Subir scripts a GitHub (sin datos)", "subir_cambios.py", "informe_git.txt"),   # último: solo código y CLAUDE.md
 ]
 LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ERROR", "FALLA", "No se pudo",
                 "Excel", "IPC descargado", "Brecha", "Series guardadas", "Sin cambios", "Serie encadenada", "Días guardados",
-                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO")
+                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0")
 
 
 def main():

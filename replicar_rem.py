@@ -80,6 +80,25 @@ def estimar(nom, tipo, H, X, y, x0):
     return ols_pred(X, y, x0)
 
 
+def elegir_I(preds, fila):
+    """Nuestro pronóstico de la inflación: 'I+dólar' si la devaluación esperada del mes supera UMBRAL_DOLAR; si no,
+    'I sin dólar'."""
+    dm = fila.get("dolar_m", np.nan) if hasattr(fila, "get") else np.nan
+    con = preds.get("I+dólar", np.nan)
+    if dm is not None and not pd.isna(dm) and dm > UMBRAL_DOLAR and not pd.isna(con):
+        return con
+    return preds.get("I sin dólar", np.nan)
+
+
+def elegir_A(preds, fila):
+    """Nuestro pronóstico del REM: 'A+dólar' si la devaluación esperada del mes supera UMBRAL_DOLAR_A; si no, A."""
+    dm = fila.get("dolar_m", np.nan) if hasattr(fila, "get") else np.nan
+    con = preds.get("A+dólar", np.nan)
+    if dm is not None and not pd.isna(dm) and dm > UMBRAL_DOLAR_A and not pd.isna(con):
+        return con
+    return preds.get("A", np.nan)
+
+
 def deshacer(tipo, H, cols, p, rem_ant):
     """Pasa la predicción de la regresión a % (nivel o revisión, en puntos o en logaritmos)."""
     if tipo == "nivel":
@@ -149,7 +168,17 @@ VARIANTES["A MCO"] = ("nivel", A_MENSUAL, A_12)        # mismo A estimado por MC
 # · 0,73); 12m 3,4 pp (REM 10,8). No usa el REM como variable.
 I_MENSUAL = [c if c != "ei_med_m" else "ei_prom_m" for c in A_MENSUAL]
 I_12 = ["inf12", "ei_prom_l", "fut12"]
-VARIANTES["I"] = ("nivel", I_MENSUAL, I_12)
+# I con DÓLAR ESPERADO (17-oct-2026): devaluación que espera A-dólar (replicar_tc.py) para el mes pronosticado y el
+# anterior. Solo se usa si la devaluación esperada del mes supera UMBRAL_DOLAR (épocas agitadas); si no, I sin dólar.
+# Prueba en tiempo real: 2022-24 error contra el IPC real m3 3,87 -> 2,44, m4 4,38 -> 3,40, m5 4,73 -> 3,85; en 2025-26
+# casi no se activa (5% de los meses) y queda igual.
+UMBRAL_DOLAR = 3.0
+# Lo mismo para A (nuestro pronóstico del REM), con umbral de 4%: 2022-24 distancia al REM m3 1,56 -> 1,33, m5 1,58 ->
+# 1,04 (dentro de P10-P90 m4 62% -> 86%); 2025-26 igual (no se activa). "A sin dólar" queda para comparar.
+UMBRAL_DOLAR_A = 4.0
+VARIANTES["A+dólar"] = ("nivel", A_MENSUAL + ["dolar_m", "dolar_m1"], A_12)
+VARIANTES["I sin dólar"] = ("nivel", I_MENSUAL, I_12)
+VARIANTES["I+dólar"] = ("nivel", I_MENSUAL + ["dolar_m", "dolar_m1"], I_12)
 PRUEBAS["A MCO"] = ("A", [], [])
 VARIANTES["A núcleo+reg"] = ("nivel", A_MENSUAL + ["reg1", "est1"], A_12)
 PRUEBAS["A general"] = ("A", ["p1", "p2", "p3"], [])
@@ -173,7 +202,7 @@ NUEVAS["A+futuros"] = (["fut_m"], [])                             # (el 12m de A
 NUEVAS["A+futuros tope"] = (["fut_m_tope"], [])                    # tope 15% mensual
 NUEVAS["A+futuros prom"] = (["fut_prom"], [])                      # promedio desde hoy hasta el mes pronosticado, con tope
 NUEVAS_B["B+futuros"] = ["dfut_m"]
-SOLO_DESDE_2020 = {"A+futuros", "A+futuros tope", "A+futuros prom", "B+futuros"}
+SOLO_DESDE_2020 = {"A+futuros", "A+futuros tope", "A+futuros prom", "B+futuros", "A+dólar", "I+dólar"}
 for _n, (_cm, _c12) in NUEVAS.items():
     VARIANTES[_n] = ("nivel", A_MENSUAL + _cm, A_12 + _c12)
     PRUEBAS[_n] = ("A", _cm, _c12)
@@ -413,6 +442,90 @@ def pronostico_inflacion(O, t, lp, rem12):
     return L
 
 
+def grilla_anual(O, t, pi, rem_all):
+    """Sección 11 (17-oct-2026): GRILLA COMPLETA como la del REM. Además de los 7 meses y los próximos 12 meses, el REM
+    pide la inflación del año calendario (dic/dic) del año en curso y los 2 siguientes, y los próximos 24 meses.
+    Regla (para A e I, en tiempo real): año en curso = meses ya publicados x pronósticos m0..m6 que caen en el año x, para
+    los meses que faltan después del m6, la tasa mensual implícita en el pronóstico de 12 meses. Años siguientes y 24
+    meses: se extiende esa tasa mensual (SUPUESTO: la inflación se mantiene; los modelos no tienen información propia
+    más allá de 12 meses). Evaluación: distancia al REM y, para años cerrados, error contra la inflación real dic/dic."""
+    L = ["", "11) GRILLA COMPLETA (años calendario y próximos 24 meses, como el REM)",
+         "    Año en curso: meses publicados + pronósticos mensuales + tasa del 12m para los meses que faltan. Años siguientes y",
+         "    24 meses: se extiende la tasa mensual del pronóstico de 12 meses (supuesto: la inflación se mantiene)."]
+    g = rem_all[rem_all["variable_std"] == "ipc_general"]
+    rem_anio = g[g["tipo_periodo"] == "anio"].assign(anio=lambda x: x["periodo_original"].astype(str).str[:4].astype(int))
+    rem_anio = rem_anio.groupby(["origen", "anio"])["mediana"].mean()
+    rem24 = g[(g["tipo_periodo"] == "proximos_meses") & (g["horizonte_meses"] == 24)].groupby("origen")["mediana"].mean()
+    real_anio = {}
+    for y in range(2017, t.year + 1):
+        ms = [pd.Period(f"{y}-{m:02d}", "M") for m in range(1, 13)]
+        if all(m in pi.index for m in ms):
+            real_anio[y] = (np.prod([1 + pi[m] / 100 for m in ms]) - 1) * 100
+
+    def armar(o, pred):
+        """pred: dict H -> pronóstico (m0..m6 en % mensual, 12m en %). Devuelve {año: %, '24m': %}."""
+        if any(np.isnan(pred.get(H, np.nan)) for H in ["12m"] + [f"m{h}" for h in range(7)]):
+            return None
+        tasa = (1 + pred["12m"] / 100) ** (1 / 12)
+        out = {}
+        for k, y in enumerate((o.year, o.year + 1, o.year + 2)):
+            f = 1.0
+            for mm in range(1, 13):
+                m = pd.Period(f"{y}-{mm:02d}", "M")
+                if m <= o - 1:
+                    if m not in pi.index:
+                        return None
+                    f *= 1 + pi[m] / 100
+                elif (m - o).n <= 6:
+                    f *= 1 + pred[f"m{(m - o).n}"] / 100
+                else:
+                    f *= tasa
+            out[y] = (f - 1) * 100
+        out["24m"] = (tasa ** 12 - 1) * 100   # "Próx. 24 meses" del REM = interanual en t+24 (con el supuesto: igual al 12m)
+        return out
+
+    filas = []
+    for o, q in O.groupby("origen"):
+        for mod in ("A", "I"):
+            pred = dict(zip(q["H"], q[mod])) if mod in q else {}
+            r = armar(o, pred)
+            if not r:
+                continue
+            for k, (y_or, v) in enumerate(r.items()):
+                etiqueta = "24m" if y_or == "24m" else ("año en curso", "año siguiente", "año +2")[k]
+                rem_v = rem24.get(o, np.nan) if y_or == "24m" else rem_anio.get((o, y_or), np.nan)
+                filas.append({"origen": o, "modelo": mod, "periodo": etiqueta, "anio": y_or, "nuestro": v, "rem": rem_v,
+                              "real": real_anio.get(y_or, np.nan) if y_or != "24m" else np.nan})
+    G = pd.DataFrame(filas)
+    if G.empty:
+        return L + ["    Sin datos suficientes."]
+    for per, mask in (("2019-2024", G["origen"] <= CORTE_SELECCION), ("2025-26", G["origen"] > CORTE_SELECCION)):
+        q = G[mask]
+        L.append(f"    {per}: distancia al REM (pp) | error contra la inflación real del año (pp; REM entre paréntesis)")
+        for etq in ("año en curso", "año siguiente", "año +2", "24m"):
+            partes = []
+            for mod in ("A", "I"):
+                x = q[(q["periodo"] == etq) & (q["modelo"] == mod)].dropna(subset=["rem"])
+                if not len(x):
+                    continue
+                xr = x.dropna(subset=["real"])
+                txt = f"{mod}: {(x.nuestro - x.rem).abs().mean():6.2f} (n={len(x)})"
+                if len(xr):
+                    txt += f" | {(xr.nuestro - xr.real).abs().mean():6.2f} ({(xr.rem - xr.real).abs().mean():.2f}; n={len(xr)})"
+                partes.append(txt)
+            if partes:
+                L.append(f"      {etq:14} " + "   ".join(partes))
+    hoy = G[G["origen"] == G["origen"].max()]
+    if len(hoy):
+        o = hoy["origen"].iloc[0]
+        L.append(f"    Hoy (relevamiento {o}):")
+        for _, r in hoy[hoy["modelo"] == "I"].iterrows():
+            a = hoy[(hoy["modelo"] == "A") & (hoy["periodo"] == r["periodo"])]["nuestro"]
+            L.append(f"      {str(r['anio']):5} ({r['periodo']}): I {r['nuestro']:6.1f}% | A {a.iloc[0] if len(a) else np.nan:6.1f}% | "
+                     f"REM anterior {G[(G['origen'] == o - 1) & (G['modelo'] == 'I') & (G['anio'] == r['anio'])]['rem'].mean():6.1f}%")
+    return L
+
+
 def termometro(O, t):
     """Sección 9 (desde el 15-oct-2026, en observación): termómetro del súper. Variación de la canasta SEPA del mes en
     curso (días 1 a 25, o hasta hoy) contra el mes anterior completo, y A del mes en curso (m0) corregida con esa señal.
@@ -565,6 +678,30 @@ def main():
                             "consumo_25": (np.log(p_mag["hasta25"]) - np.log(p_mag["mes"].shift(1))) * 100})
     except FileNotFoundError:
         mag = pd.DataFrame(columns=["consumo", "consumo_25"])
+    # dólar esperado por A-dólar (replicar_tc.py corre antes): por relevamiento y horizonte; el relevamiento en curso
+    # sale del registro de hoy (datos\registro_tc.csv)
+    tc_a, tc_sp = pd.DataFrame(), pd.Series(dtype=float)
+    try:
+        TCr = pd.read_csv(D.CARPETA / "replica_tc.csv")
+        TCr["origen"] = pd.PeriodIndex(TCr["origen"], freq="M")
+        tc_a = TCr.pivot_table(index="origen", columns="h", values="A_dolar")
+        tc_sp = TCr.groupby("origen")["spot"].first()
+        rtc = pd.read_csv(D.CARPETA / "registro_tc.csv", encoding="utf-8-sig")
+        t_hoy = pd.Period(pd.Timestamp.today(), "M")
+        rtc = rtc[rtc["relevamiento"] == str(t_hoy)].groupby("h")["A_dolar"].last()
+        if len(rtc) and t_hoy not in tc_a.index:
+            tc_a.loc[t_hoy] = rtc.reindex(tc_a.columns)
+            tc_sp.loc[t_hoy] = tc_d.iloc[-1]
+    except (FileNotFoundError, KeyError):
+        pass
+
+    def dev_esp(o, h):
+        """Devaluación esperada (log x 100) del mes o+h contra el mes anterior según A-dólar (mes o: spot del relevamiento)."""
+        if o not in tc_a.index or h < 1:
+            return np.nan
+        a = tc_a.loc[o].get(h, np.nan)
+        b = tc_sp.get(o, np.nan) if h == 1 else tc_a.loc[o].get(h - 1, np.nan)
+        return float(np.log(a / b) * 100) if (a and b and a > 0 and b > 0) else np.nan
     lipim = np.log(serie_m("indec_ipim_ng_nivel_general"))
     lripte = np.log(serie_m("datosgob_158.1_REPTE_0_0_5"))
     primario12 = serie_m("datosgob_452.3_RESULTADO_RIO_0_M_18_54").rolling(12).sum()   # 12 meses completos o vacío
@@ -642,6 +779,7 @@ def main():
                 "ei_prom_l": np.log1p(ei["promedio"].get(t, np.nan) / 100) * 100,
                 "carne25": mag["consumo_25"].get(t, np.nan), "carne1": mag["consumo"].get(t - 1, np.nan),
                 "nuc_2": nuc.get(t - 2, np.nan), "nuc_3": nuc.get(t - 3, np.nan),
+                "dolar_m": dev_esp(t, h), "dolar_m1": dev_par.get(t, np.nan) if h == 1 else dev_esp(t, h - 1),
                 # estacionalidad del mes pronosticado (t+h): núcleo del mismo mes del año anterior, y desvío típico de ese
                 # mes respecto del promedio de su año, promediado en los últimos 3 años (diluye un tarifazo de un solo año)
                 "p12n": nuc.get(t + h - 12, np.nan),
@@ -688,6 +826,9 @@ def main():
                     continue
                 pred = estimar(nom, tipo, H, tb[cols].values.astype(float), tb[y].values.astype(float), fila[cols].values.astype(float))
                 res[nom] = deshacer(tipo, H, cols, pred, fila["rem_ant"])
+            res["I"] = elegir_I(res, fila)
+            res["A sin dólar"] = res.get("A", np.nan)
+            res["A"] = elegir_A(res, fila)
             for nom, (base_nom, semivida, lam) in METODOS.items():
                 tipo, cm, c12 = VARIANTES[base_nom]
                 cols = c12 if H == "12m" else cm
@@ -910,7 +1051,7 @@ def main():
             th = T[T.H == H]
             insumos.append({"relevamiento": str(t), "H": H, **fila.to_dict()})
             preds = {}
-            for nom in ("B", A_PRONOSTICO, "I"):   # A sin salarios: el dato de t-2 todavía puede no estar publicado
+            for nom in ("B", A_PRONOSTICO, "A+dólar", "I sin dólar", "I+dólar"):   # A sin salarios: el dato de t-2 todavía puede no estar publicado
                 tipo, cm, c12 = VARIANTES[nom]
                 cols = c12 if H == "12m" else cm
                 y = y_de(tipo, H, cols)
@@ -930,7 +1071,8 @@ def main():
             rango_inf = f"{lo_inf:5.2f} a {hi_inf:5.2f}" if not np.isnan(lo_inf) else "-"
             L.append(f"   {mes:9} {fila['rem_ant']:12.2f} | {preds['B']:6.2f} {lo_rem:7.2f} a {hi_rem:6.2f} | "
                      f"{preds[A_PRONOSTICO]:16.2f} | {rango_inf:>22}")
-            I_HOY[H] = preds.get("I", np.nan)
+            I_HOY[H] = elegir_I(preds, fila)
+            preds[A_PRONOSTICO] = elegir_A(preds, fila)
             registro.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "H": H,
                              "objetivo": "12m" if H == "12m" else str(t + h), "rem_anterior": fila["rem_ant"],
                              "B": preds["B"], "B_rango_bajo": lo_rem, "B_rango_alto": hi_rem,
@@ -972,6 +1114,17 @@ def main():
     L += alertas(T, O, t, rasgos, hist_s, fu_todo=pd.read_parquet(D.CARPETA / "dolar_futuro_cem.parquet"))
     L += termometro(O, t)
     L += pronostico_inflacion(O, t, lp, rem12)
+    # grilla: para el relevamiento en curso (sin REM todavía) se suman los pronósticos de hoy
+    O_hoy = O
+    if t not in set(O["origen"]):
+        extra = [{"origen": t, "H": H, "I": I_HOY.get(H, np.nan)} for H in I_HOY]
+        if REGISTRO.exists():
+            rg = pd.read_csv(REGISTRO, encoding="utf-8-sig")
+            rg = rg[rg["relevamiento"] == str(t)].groupby("H")["A"].last()
+            for e in extra:
+                e["A"] = rg.get(e["H"], np.nan)
+        O_hoy = pd.concat([O, pd.DataFrame(extra)], ignore_index=True)
+    L += grilla_anual(O_hoy, t, pi, rem_all)
     texto = "\n".join(L)
     print(texto)
     INFORME.write_text(texto, encoding="utf-8")

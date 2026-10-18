@@ -1,4 +1,4 @@
-# guardar_historicas.py
+﻿# guardar_historicas.py
 # Guarda con TODA su historia las series que se usaron o revisaron en el proyecto y que no tienen actualizador propio
 # (BCRA API v4.0, datos.gob.ar y archivos del INDEC). Nunca borra: si una fuente falla o trae menos datos que antes,
 # se conservan los guardados y se avisa.
@@ -92,7 +92,15 @@ DATOS_GOB = [
     "379.7_SUPERAVIT_006__28_65", "379.7_RESULTADO_006__23_14",
     # RIPTE (Secretaría de Trabajo): sale antes que el índice de salarios del INDEC
     "158.1_REPTE_0_0_5",
-]
+    # indicadores adelantados de actividad para el PIB (17-oct-2026): IVA DGI y recaudación total (salen los primeros
+    # días del mes siguiente), importaciones y exportaciones totales en USD (INDEC, ~día 20 del mes siguiente), IPI
+    # manufacturero (INDEC), ventas de gasoil y cigarrillos
+    "142.3_IVA_D_2001_M_7", "142.3_IVA_2001_M_3",
+    "74.3_IIT_0_M_25", "74.3_IET_0_M_16", "74.3_IBCPP_0_M_32", "74.3_IICL_0_M_42",
+    "453.1_SERIE_ORIGNAL_0_0_14_46", "453.1_SERIE_TENDCLO_0_0_21_61",
+    "41.3_DC_0_A_21",
+]   # (recaudación total 172.3 y gasoil 363.3 ya estaban más arriba: repetirlas duplicaba los datos; quitadas el 18-oct-2026)
+DATOS_GOB = list(dict.fromkeys(DATOS_GOB))   # por las dudas: una serie repetida en la lista no se baja dos veces
 # otras fuentes oficiales en archivo (agregadas el 14-oct-2026)
 URL_ITCRM = "https://www.bcra.gob.ar/Pdfs/PublicacionesEstadisticas/ITCRMSerie.xlsx"
 PAGINA_BM = "https://www.worldbank.org/en/research/commodity-markets"   # el enlace al Excel cambia con cada publicación
@@ -521,6 +529,8 @@ def main():
         total["fecha"] = pd.to_datetime(total["fecha"]).dt.date
         total.to_parquet(SALIDA, index=False)
         cat = pd.DataFrame(catalogo)
+        for k in ("desde", "hasta"):   # las del catálogo anterior vienen como texto: todo a texto AAAA-MM-DD
+            cat[k] = cat[k].astype(str).str[:10]
         cat.to_csv(CATALOGO, index=False, encoding="utf-8-sig")
         vistas, salteadas = armar_duckdb()
 
@@ -550,7 +560,9 @@ def main():
             if ALERTAS_CSV.exists():
                 ALERTAS_CSV.unlink()
     except Exception as e:
-        informe += ["", "=" * 60, f"FALLA INESPERADA: {type(e).__name__}: {e}", "No se modificó el archivo de series."]
+        import traceback
+        informe += ["", "=" * 60, f"FALLA INESPERADA: {type(e).__name__}: {e}", "No se modificó el archivo de series.",
+                    "Detalle: " + " | ".join(l.strip() for l in traceback.format_exc().splitlines()[-16:-6])]
         codigo = 2
     pd.DataFrame([{"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "codigo": codigo, "alertas": len(alertas)}]).to_csv(
         HISTORIAL, mode="a", header=not HISTORIAL.exists(), index=False, encoding="utf-8-sig")
@@ -569,3 +581,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

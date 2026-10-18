@@ -51,6 +51,79 @@ Scripts:
   - Cobertura: 2017 a 2021, parte de 2022 y 2026. **Jul-2022 a dic-2025 no está disponible** (habría que pedírselo al Mercado Central).
   - Algunos ZIP oficiales traen archivos ajenos de la PC de quien los armó (páginas guardadas, capturas): se descartan sin abrirlos.
 - `inventario_variables.py`: listado de todas las variables guardadas (desde, hasta, cantidad de registros) en `datos\inventario_variables.xlsx`.
+- `replicar_tc.py` (17-oct-2026; en `actualizar_todo.py`): nuestro pronóstico del **tipo de cambio**. A3500 promedio mensual, como lo pide el REM; desde 2020, con los futuros del CEM.
+  - **Hallazgo:** el REM ≈ futuros con un descuento que crece con el plazo (−0,2% a 1 mes, −4% a 6 meses en 2020-24; −2% en 2025-26). Los futuros pronostican de más (prima de riesgo).
+  - **A-dólar** = futuros × descuento típico del REM en ese plazo (últimos 12 informes).
+    - Cae dentro del rango P10-P90 de las consultoras el 76-86% de las veces: **cumple la meta de "consultora típica"**.
+    - **Contra el dólar real, en 2025-26 le gana al REM de 1 a 6 meses**, y es significativo a 2 y 3 meses (DM p 0,00 y 0,02): error h2 2,4% vs 3,9%, h3 4,1% vs 5,6%. A 12 meses gana el REM (7,0 vs 7,6%).
+    - En 2020-24, mejor que el REM a 3-6 meses, sin significancia.
+  - **B-dólar** = REM anterior × cambio de los futuros: el más cercano al REM a 2-5 meses (86-90% dentro del rango).
+  - **I-dólar** (futuros corregidos por la prima observada): **descartado**; la prima de 2023-24 lo distorsiona.
+  - Informe en `datos\informe_tc.txt`; pronóstico de cada corrida en `datos\registro_tc.csv`.
+  - **Diciembre de cada año (17-oct-2026):** el REM pide el dólar de diciembre (promedio mensual). Para diciembre del año siguiente se extiende la tasa del contrato de futuros más largo.
+    - 2025-26, dic del año en curso: error contra el dólar real A-dólar 5,7% vs REM 8,9% (n.s.).
+    - 2020-24: dic año 15,7 vs 15,2; dic año+1 33,6 vs 33,2 (empate).
+  - **B-dólar a 6 y 12 meses:** si no hay REM anterior para ese mismo mes, usa el del mismo horizonte × cambio de los futuros. 2025-26: dentro del rango 95% (h6, h12, dic).
+- **Dólar esperado también en A (17-oct-2026; `UMBRAL_DOLAR_A` = 4%, `elegir_A()`).** Si A-dólar espera más de 4% de devaluación para el mes, A usa "A+dólar".
+  - Distancia al REM en la muestra común: m2 0,78 → 0,69 · m3 0,80 → 0,72 · m4 0,89 → 0,78 · m5 0,88 → 0,69.
+  - 2025-26 igual (no se activa). "A sin dólar" queda en `replica_rem.csv` para comparar.
+  - "A+dólar" e "I+dólar" están fuera de la muestra común (`SOLO_DESDE_2020`).
+- `actualizar_actividad.py` y `replicar_pib.py` (17-oct-2026; en `actualizar_todo.py`): nuestro pronóstico del **PIB trimestral desestacionalizado** (var. % contra el trimestre anterior), como lo pide el REM.
+  - **Datos:** INDEC directo.
+    - PIB desestacionalizado: las 42 versiones desde jun-2016, una por publicación (`sh_oferta_demanda_desest_MM_AA.xls`).
+    - EMAE mensual. El INDEC no guarda versiones viejas del EMAE: se usa la actual y se guardan copias propias desde el 17-oct-2026.
+  - **Qué pregunta el REM:** 3 trimestres. En mar/jun/sep/dic: el en curso y los 2 siguientes. En los demás meses: el anterior (aún no publicado), el en curso y el siguiente.
+  - **Real** = primer dato publicado de cada trimestre.
+  - **I-PIB** (nuestro pronóstico) = EMAE hasta t−2; los meses que faltan se completan con el promedio de los últimos 3 meses (trimestre anterior) o con la tendencia-ciclo escalada (en curso y siguientes). Completar con el último mes era malo después de meses raros: julio 2026 cayó −2,9%.
+    - 2025-26, contra el primer dato: anterior 0,26 vs REM 0,42 (DM p 0,06) · en curso 0,49 vs 0,56 · siguiente 0,42 vs 0,61 (n.s.).
+    - 2016-24: el REM es mejor (EMAE revisado y shocks de 2020).
+  - **A-PIB** = regresión robusta del REM sobre las tres versiones del EMAE, el último PIB y el último mes de EMAE. Muy cerca del REM en el trimestre anterior (0,35 pp). Hoy, 3er trim. 2026: A −1,00 vs REM de septiembre −0,95.
+  - **Mes que le falta al EMAE (17-oct-2026, `nowcast_emae.py`, fuera del circuito diario):** con importaciones (USD), acero crudo e IVA DGI deflactado del mes t−1 (los tres publicados a fin de t). Mejoran el interanual frente a la inercia (2017-24: 2,76 → 2,33 pp), pero **la variación mensual desestacionalizada no se pronostica mejor que "se queda"** (1,41-1,48 contra 1,43 pp; correlación 0,1-0,16). El EMAE mensual s.e. es muy ruidoso. **No se suma a I-PIB.** IPI y demanda eléctrica salen tarde (no llegan al relevamiento).
+  - **PIB anual (17-oct-2026, `replicar_pib.py`, `datos\replica_pib_anual.csv`):** trimestres publicados + I-PIB de los próximos + después 0% ("I cero") o el promedio de los últimos 20 trimestres ("I p20"); A anual = regresión del REM sobre ambos. Real = primer dato del año (versión que trae su 4° trimestre). **El REM es mejor contra el primer dato en todas las posiciones** (año en curso 2016-24: REM 2,00 vs I 2,52 pp; 2025-26: 0,47 vs 0,71-0,74, n 11; nada significativo). A anual imita bien al REM a 1-2 años (0,3-1,1 pp en 2025-26). Hoy: 2026 I cero 1,26 / I p20 1,61 (REM ant. 1,50); 2027 −0,15 / 1,58 (REM 2,47).
+- `replicar_tasa.py` (18-oct-2026; en `actualizar_todo.py`, después del tipo de cambio): nuestro pronóstico de la **tasa** como la pide el REM (promedio mensual, TNA, meses t+1 a t+6).
+  - El REM pidió la BADLAR de bancos privados hasta nov-2024 y la TAMAR desde dic-2024: se usan juntas (82 relevamientos desde 2020-01), cada una contra su tasa real (BCRA ids 7 y 44).
+  - Señal de mercado: tasa "forward" de cada mes implícita en los futuros de dólar del CEM (cociente de contratos consecutivos, anualizado). La tasa implícita de cada contrato anduvo igual o peor.
+  - **A-tasa** = tasa del mes hasta el 25 + regresión robusta del REM sobre (forward − tasa), el cambio del mes y la tasa real. El REM sigue al forward (h6: t 13,8) y al cambio reciente de la tasa (t 4,5-6,8).
+  - **B-tasa** = REM anterior + sorpresa de la tasa del mes y cambio del forward.
+  - **Contra la tasa real, el REM gana en todos los años y horizontes** (2025-26: h1 REM 2,97 vs A 3,98 pp de TNA, DM p 0,03; h3 6,2 vs 9,4; h6 7,1 vs 9,9). "Se queda" tampoco le gana. A cae dentro de P10-P90 el 59-68% de las veces en 2025-26 (71-89% en 2020-24); B el 64-86%.
+  - Probadas y descartadas: tasa de call (BAIBAR, id 11) y pases entre terceros (id 150): mejoran algo en 2025-26 y empeoran en 2020-24.
+  - Lectura: la tasa la fija la política (BCRA y licitaciones del Tesoro) y el REM ve esas señales.
+  - **Tasas de corte de las licitaciones del Tesoro (18-oct-2026): probadas y descartadas.** `actualizar_licitaciones.py` (diario, antes de `replicar_tasa.py`) baja las planillas oficiales "Colocaciones de deuda" (Oficina Nacional de Crédito Público, 2020 en adelante; la del año en curso, preliminar y mensual) → `datos\licitaciones_tesoro.parquet` (1.079 colocaciones; 434 letras a tasa fija en pesos con tasa calculada).
+    - Tasa de corte = (pago al vencimiento / precio)^(30/días) − 1. LETES y LELITES "a descuento" pagan 1000; LECAP y BONCAP pagan 1000 × (1+TEM)^meses (meses calendario + días/30; entre fines de mes, meses justos).
+    - Validada contra comunicados oficiales: S13D4 sep-2024 3,71% vs 3,75%; letras nuevas 3,82-3,92% vs 3,90-3,95%; feb-2025 2,48-2,58% vs 2,53-2,58%. Las diferencias vienen de usar la fecha de liquidación.
+    - En el modelo ("A_lecap" en `replica_tasa.csv`, letra corta de la última licitación hasta el 25 menos la tasa del mes): acerca un poco al REM en 2025-26 a 1-3 meses (h2 3,35 → 2,96) pero contra la tasa real da igual o peor. No se suma.
+    - Para el mes en curso la planilla llega con ~1 mes de atraso; los comunicados de cada licitación (PDF) traen el dato el mismo día.
+  - "Próx. 12 meses" de la TAMAR en el REM no cierra con los meses y con diciembre (sep-2026: 25% contra 21-22%): sin verificar qué mide; no se evalúa.
+  - Informe `datos\informe_tasa.txt`; registro diario `datos\registro_tasa.csv`.
+- `replicar_fiscal.py` (18-oct-2026; en `actualizar_todo.py`): nuestro pronóstico del **resultado primario** como lo pide el REM (SPN, año calendario, miles de millones de $; año en curso y siguiente).
+  - Dato real: **IMIG** de la Secretaría de Hacienda (datos.gob.ar 452.3; coincide con el esquema AIF 2017 en todos los años). El script baja el CSV completo (ingresos y gastos por rubro) y guarda cada versión en `datos\copias\imig\`. Se usan los meses hasta t−1 (el IMIG sale a mediados del mes siguiente).
+  - **I-fiscal** = conocido del año + meses que faltan iguales al mismo mes del año anterior × (1 + inflación interanual del último IPC), ingresos y gastos por separado. Año siguiente: los 12 meses × (1 + inflación).
+  - "I g6" (crecimiento propio de ingresos y gastos de los últimos 6 meses) es inestable: el resultado es una diferencia chica entre flujos grandes (2025: error 1,5% del PIB). Queda para comparar.
+  - A-fiscal = regresión robusta del REM sobre I, I g6 y lo conocido (en % del PIB). Aprendió de los años de cambio de régimen (2020, 2024) y en 2025-26 queda peor que I.
+  - **Resultados (errores en puntos del PIB):**
+    - 2025-26, distancia al REM: I 0,21 (año en curso) y 0,43 (siguiente); **dentro de P10-P90 el 76-80%: se comporta como una consultora típica.**
+    - Contra el dato real, el REM es mejor: 2016-24 año en curso 0,96 vs I 1,80 (p 0,08); 2025 0,14 vs 0,34 (n 11). La ventaja del REM es mayor a principio de año (enero 1,29 vs 2,19; noviembre 0,28 vs 0,50), porque conoce las metas fiscales y los anuncios. Los errores grandes de I: 2020 (pandemia) y 2024 (ajuste).
+    - Hoy: 2026 I 13,3 billones (1,24% del PIB) vs REM de septiembre 15,0 (1,39%); 2027 I 17,8 vs REM 18,5.
+  - **Meta fiscal como ancla (18-oct-2026; `datos\metas_fiscales.csv`, armada a mano con fuentes por fila).** Meta de resultado primario vigente en cada fecha (Presupuestos, FMI y revisiones, anuncios), 2016-2027.
+    - **I-fiscal = (meses publicados/12) × proyección + (1 − meses/12) × meta.** Sin meta conocida, solo la proyección ("I sin meta" queda para comparar).
+    - Año en curso, error contra el real (% PIB): **2025 I 0,07 vs REM 0,14** (sin meta 0,34; n 11, p 0,26). 2016-24 I 1,40 vs REM 0,96 (sin meta 1,80). En enero-febrero I empata con el REM (1,26 vs 1,29); de marzo a septiembre el REM es mejor.
+    - Distancia al REM 2025-26: 0,08 (antes 0,21); dentro de P10-P90 el 100%.
+    - A-fiscal suma la meta (meta×(1−k/12), meta×k/12): 2016-24 contra el real 1,42 → 1,07 y dentro de P10-P90 79%. En 2025-26 queda peor que I (0,33).
+    - Fallas que la meta no arregla: 2020 (sin meta, pandemia) y 2021 (meta −4,5% sin DEG; el IMIG incluye el ingreso por DEG del FMI: −2,1%).
+    - **Mantener la tabla al día a mano:** cada Presupuesto (mediados de septiembre) y cada revisión del FMI. Hoy: 2026 y 2027 = 1,3% (Presupuesto 2027, 17-sep-2026).
+    - Hoy: 2026 I 13,5 billones (1,26%) vs REM de septiembre 15,0; 2027 I 17,7 vs REM 18,5. Ojo: el PIB nominal de 2026-27 lo estimamos (último PIB × crecimiento de los ingresos); el Presupuesto 2027 implica un PIB ~4% mayor (18,44 billones = 1,3%).
+  - Informe `datos\informe_fiscal.txt`; registro `datos\registro_fiscal.csv`.
+- `replicar_comercio.py` (18-oct-2026; en `actualizar_todo.py`): nuestro pronóstico de **exportaciones e importaciones** (millones de USD) como las pide el REM desde dic-2020: meses t a t+6 y años en curso y siguiente.
+  - Dato: intercambio comercial del INDEC (datos.gob.ar 74.3, en `series_historicas`); a fin de t se conoce hasta t−1.
+  - I = mismo mes del año anterior × crecimiento interanual reciente (3 y 12 meses). **Malo:** el comercio cambia de golpe (sequía 2023, cosechas, cepo) y no lo ve.
+  - **A** = regresión robusta de log(REM / mismo mes del año anterior) sobre los crecimientos de 3 y 12 meses y el último mes; los años se arman encadenando A (meses más allá de t+6 con la relación de t+6). Es el que usamos.
+  - **Importaciones, 2025-26, error contra el real (%):** A le gana al REM a 3-6 meses (m3 7,5 vs 7,6; m6 7,1 vs 8,8, n.s.) y en el año (1,8 vs 2,6, n 11). Dentro de P10-P90 48-67%.
+  - **Exportaciones, 2025-26:** el REM es mejor contra el real (m3 9,9 vs 13,4) pero A imita bien al REM (dentro de P10-P90 67-81% mensual, 85% el año). En 2023-24 (misma muestra) el REM fue mejor en todo: año siguiente 5,1 vs A 8,9%; exportaciones de 2023 (sequía) año en curso REM 7,2 vs A 15,1%, meses REM 10,9 vs A 25,1% (los dos sobrestimaron). Corregido el 18-oct-2026: una primera tabla comparaba A y REM sobre muestras distintas (A arranca tras 24 informes).
+  - Hoy: exportaciones 2026 A 101.079 (REM ant. 101.200), 2027 102.233 (105.334); importaciones 2026 75.011 (75.499), 2027 77.884 (82.260).
+  - **Exportaciones + precios de granos (18-oct-2026):** A suma la variación interanual (mes t−1) de los índices del Banco Mundial "Oils & Meals" y "Grains". Error contra el real (toda la muestra común) 13,9 → 12,4%; meses de 2023 25,1 → 17,6% (REM 10,9). **2025-26: A le gana al REM en el año (3,2 vs 4,6%, n 11, n.s.)** y empata a 1-6 meses (m1 8,4 vs 7,9; m6 12,1 vs 12,0); dentro de P10-P90 62-90%. En 2023-24 el REM es mucho mejor.
+  - **Estimaciones oficiales de cosecha (18-oct-2026; `actualizar_estimaciones_agricolas.py` → `datos\estimaciones_agricolas.parquet`): probadas y descartadas.** Se bajan los 130 informes mensuales del Ministerio de Agricultura (2016-2026, PDF; lectura automática desde 2018) con su fecha. La sequía de 2023 aparece recién el 20-abr-2023 (soja 27,7 vs 44 Mt; maíz 43 vs 59). Señal = cosecha de la campaña que se exporta ese año contra la anterior, ponderada por precio por tonelada. En la regresión no mejora: A arranca en ene-2023 y la sequía es el primer shock de cosecha de la muestra, no hay de dónde aprender. Con un efecto fijado de antemano (0,2-0,5 × caída de cosecha) mejora 2023 un poco (17,6 → 15,6) pero empeora 2024-26. Los datos quedan guardados y al día.
+  - Posibles mejoras: actividad y tipo de cambio para importaciones.
+  - Informe `datos\informe_comercio.txt`; registro `datos\registro_comercio.csv`.
 - `importar_preciazo.py`: resume los días archivados por preciazo (`E:\SEPA\historico_preciazo`) con el mismo resumen que `actualizar_sepa.py`. Saltea las cadenas mayoristas (otro formato) y los archivos vacíos. Algunos días de ene-feb 2025 traen cada cadena en un ZIP propio. Registro en `E:\SEPA\historico_preciazo\importados.csv`.
 - `validar_indice_sepa.py`: compara la variación mensual del índice SEPA con un "INDEC equivalente" (mismas clases y pesos), por región. Informe en `datos\informe_validacion_sepa.txt`.
 - `ubicar_en_excel.py`: dice en qué fila/celda del Excel del REM está un dato (se corre desde la terminal con argumentos).
@@ -355,7 +428,19 @@ Datos en `datos\`:
           - **2025-26:** m2 0,54 vs 0,57 · m3 0,36 vs 0,53 · m4 **0,26 vs 0,54** · m6 0,33 vs 0,73 · 12m **3,4 vs 10,8**. I gana en el 53-82% de los meses (12m 100%), pero **sin significancia** (DM p 0,23-0,69; pocas observaciones).
           - **2019-24:** el REM es significativamente mejor en todos los horizontes (p < 0,05).
           - Mes en curso: imposible por ahora (I+súper 0,65 vs REM 0,28).
+        - **I con dólar esperado (17-oct-2026; `UMBRAL_DOLAR`, `elegir_I()`):**
+          - Si A-dólar espera una devaluación de más de 3% para el mes pronosticado, I suma esa devaluación y la del mes anterior; si no, I sin dólar.
+          - `replicar_tc.py` corre antes que `replicar_rem.py`.
+          - Toda la muestra, error contra el IPC real: m3 1,89 → 1,42 (REM 1,38: casi empate; DM p 0,67, antes el REM era significativamente mejor) · m4 2,11 → 1,77 · m6 2,39 → 2,13.
+          - 2019-24: m3 2,29 → 1,69 · m4 2,56 → 2,15.
+          - 2025-26: igual (se activa en ~5% de los meses).
+          - Sin la regla, el dólar empeoraba la calma (m4 0,26 → 0,51).
         - **Para ganarle de verdad:** (1) que la ventaja de 2025-26 se sostenga en la prueba hacia adelante (`datos\registro_inflacion.csv`); (2) historia SEPA para el mes en curso y el siguiente; (3) anticipar los giros, que es donde I/A pierden (elecciones, noticias, tarifas anunciadas).
+      - **Grilla completa del REM (17-oct-2026; sección 11, `grilla_anual()`).** El REM pide 12 pronósticos de inflación por informe: 7 meses, 3 años calendario dic/dic, próximos 12 meses y próximos 24 meses (= interanual en t+24).
+        - Regla para A e I: año en curso = meses publicados × m0-m6 × tasa del 12m para los meses que faltan. Años siguientes y 24m: se extiende la tasa del 12m (supuesto: la inflación se mantiene; sin información propia más allá de 12 meses).
+        - 2025-26, año en curso: error contra la inflación real del año A 2,5 pp / I 3,0 vs REM 3,7 pp (n=11).
+        - Años siguientes: lejos del REM, porque el REM supone desinflación (2028 15% vs nuestro ~21-23%).
+        - Comparación detallada por horizonte (m0-m6, 12m) en `tablas_rem_vs_nuestro.py` → `datos\comparacion_rem_vs_nuestro.xlsx`. En 2025-26, A e I pronostican significativamente más inflación que el REM de 2 meses en adelante (p < 0,05).
       - **Decisión: A queda con MCO.** Ningún método mejora de forma clara. Lo que separa a A del REM es información, no el método de estimación.
       - **Período reservado 2025-01 a 2026-09 mirado UNA vez el 15-oct-2026** (`--ver-prueba`; 21 relevamientos). **Ya no es una prueba limpia.** La próxima prueba limpia es hacia adelante: los relevamientos desde 2026-10, registrando el pronóstico antes de que salga cada REM.
         - **A (MCO), el elegido:** distancia al REM m0 0,52 · m1 0,41 · m3 0,25 · m5 0,33 pp · 12m 6,4 pp. Dentro de P10-P90: m1 38%, m3 76%, m5 52%. B, como referencia: m1 0,20, m3 0,12, 12m 1,6; P10-P90 76% / 95% / 100%.
@@ -443,6 +528,12 @@ Datos en `datos\`:
             - Los envasados solos no aportan.
           - También se correlaciona con lo que el REM no anticipó (0,34).
           - **Es la señal más prometedora para el mes en curso, pero con solo 20 meses.** Octubre 2026 (días 1-15): +1,98%. A m0 corregido: 1,40 → 1,63-1,72%.
+          - **Zenodo 2016-2018 no sirve para el termómetro** (`procesar_zenodo.py`, informe `datos\informe_zenodo.txt`, 17-oct-2026).
+            - Por código de barras se reconocen solo envasados (los frescos usan códigos internos sin descripción). Solo precio de lista: sin leyendas de promoción.
+            - 2017 vs IPC nacional (13 meses): correlación 0,03 con el general, 0,30 con alimentos, 0,22 con las mismas clases y 0,06 con lo que el REM no anticipó.
+            - Coherente con 2024-26: los envasados solos no aportan; lo que sirve es la canasta completa con frescos. Además, 2017 fue un año de tarifazos.
+            - Hace falta la historia oficial con descripciones (pedido a la Secretaría de Comercio).
+            - **Cruce de códigos con las descripciones de 2024-26 (18-oct-2026):** el 49% de los pares cadena × EAN de Zenodo recupera la descripción (147 mil de 302 mil). Los 30 mil códigos internos (frescos por peso) no recuperan ninguno: las cadenas cambiaron esa numeración. **Sigue sin haber frescos en 2016-18**, así que la conclusión no cambia.
           - **En observación diaria (desde el 15-oct-2026):** sección 9 de `replicar_rem.py` ("termómetro del súper"). Muestra el SEPA del mes en curso y A m0 corregida hacia el REM y hacia el INDEC; sale también en `informe_general.txt`. No cambia el pronóstico oficial de A. Cada corrida queda en `datos\registro_termometro.csv`, con la prueba hacia adelante en la misma sección.
           - **Siguiente paso:** conseguir la historia SEPA completa (huecos mar-jun 2026, 23-30 sep 2026 y mar-2018 a ago-2024) con un pedido de acceso a la información pública a la Secretaría de Comercio (Ley 27.275; recordatorio 16-oct 11:30). Marcos le preguntó a Enzo Notario si conoce a alguien con la base.
         - **Conclusión:** en calma, el error de A en el mes en curso no se explica por un rubro suelto (frescos, regulados, carne). Lo que sí aporta es la canasta del supermercado.
