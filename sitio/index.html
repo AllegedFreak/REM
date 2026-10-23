@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datos Con Método</title>
+<meta name="description" content="Pronósticos de la economía argentina hechos con datos públicos y método abierto. Comparados con el REM del BCRA y con lo que pasó. Series para descargar.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="canonical" href="https://www.datosconmetodo.com/">
+<link rel="license" href="https://creativecommons.org/licenses/by/4.0/deed.es">
+<meta property="og:title" content="Datos Con Método">
+<meta property="og:description" content="Pronósticos de la economía argentina hechos con datos públicos y método abierto. Series para descargar.">
+<meta property="og:url" content="https://www.datosconmetodo.com/">
+<meta property="og:type" content="website">
+<meta name="author" content="Marcos Cavanagh">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<header class="barra">
+  <div class="envoltura barra-in">
+    <a class="marca" href="#" aria-label="Datos Con Método, inicio">
+      <svg class="marca-logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="8" y="17" width="3.5" height="7" rx="1" fill="currentColor"/>
+        <rect x="14.25" y="12" width="3.5" height="12" rx="1" fill="currentColor"/>
+        <rect x="20.5" y="15" width="3.5" height="9" rx="1" fill="currentColor"/>
+        <circle cx="22.25" cy="8.5" r="2.25" class="marca-punto"/>
+      </svg>
+      <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
+    </a>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#pronosticos">Pronósticos</a>
+      <a href="#historial">Cómo nos fue</a>
+      <a href="#fuentes">Fuentes</a>
+      <a href="#descargas">Descargas</a>
+      <a href="#metodo">Método</a>
+    </nav>
+    <button class="tema" id="tema" type="button" aria-label="Cambiar entre modo claro y oscuro">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="contenido">
+  <section class="portada">
+    <div class="envoltura">
+      <p class="sobretitulo">Datos abiertos · método a la vista</p>
+      <h1>Pronósticos de la economía argentina hechos con datos públicos.</h1>
+      <p class="bajada">Cada mes registramos nuestro pronóstico <strong>antes</strong> de que el BCRA publique el REM, y después lo comparamos con el REM y con lo que pasó. Mostramos dónde acertamos y dónde no. Todas las series que usamos se pueden descargar.</p>
+      <div class="tiles" id="tiles" aria-live="polite"></div>
+      <p class="actualizado" id="actualizado"></p>
+    </div>
+  </section>
+
+  <section id="pronosticos" class="seccion">
+    <div class="envoltura">
+      <h2>Pronósticos de hoy</h2>
+      <p class="intro" id="pron-intro">Nuestro pronóstico para el próximo informe del REM, junto a la mediana del último REM publicado para el mismo período.</p>
+      <div class="tarjetas" id="tarjetas"></div>
+    </div>
+  </section>
+
+  <section id="historial" class="seccion seccion-alt">
+    <div class="envoltura">
+      <h2>Cómo nos fue</h2>
+      <p class="intro">Error promedio contra el dato real: el nuestro y el del REM, sobre los mismos meses. "Más cerca" es el porcentaje de veces que nuestro pronóstico quedó más cerca del dato que el REM. Antes de octubre de 2026 son <strong>reconstrucciones en tiempo real</strong>: cada pronóstico se armó solo con datos publicados hasta esa fecha, pero no se publicó entonces.</p>
+      <div class="leyenda-global" aria-hidden="true">
+        <span><i class="ley ley-real"></i>Dato real</span>
+        <span><i class="ley ley-rem"></i>REM (mediana)</span>
+        <span><i class="ley ley-nuestro"></i>Nuestro</span>
+      </div>
+      <div id="bloques"></div>
+    </div>
+  </section>
+
+  <section id="fuentes" class="seccion">
+    <div class="envoltura">
+      <h2>Fuentes</h2>
+      <p class="intro">De dónde sale cada dato, cuándo fue el último y cuándo lo bajamos. El punto indica si la fuente está al día según su frecuencia de publicación.</p>
+      <div class="filtros" role="group" aria-label="Filtrar fuentes">
+        <button type="button" class="chip activo" data-f="todas">Todas</button>
+        <button type="button" class="chip" data-f="verde">Al día</button>
+        <button type="button" class="chip" data-f="atrasadas">Atrasadas</button>
+        <button type="button" class="chip" data-f="sin">Sin descarga</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla tabla-fuentes">
+          <thead><tr><th>Estado</th><th>Fuente</th><th class="num">Último dato</th><th class="num">Actualizado</th><th>Frecuencia</th><th>Descarga</th></tr></thead>
+          <tbody id="tabla-fuentes"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="descargas" class="seccion seccion-alt">
+    <div class="envoltura">
+      <h2>Descargas</h2>
+      <p class="intro">Elegí una o varias series y el período. Se arma un Excel con una hoja de datos (una columna por serie) y otra con la fuente y la cita de cada una.</p>
+      <div class="descarga">
+        <div class="descarga-filtros">
+          <label class="campo campo-busca"><span>Buscar</span><input id="busca" type="search" placeholder="Ej.: IPC, base monetaria, soja, reservas" autocomplete="off"></label>
+          <label class="campo"><span>Fuente</span><select id="f-fuente"><option value="">Todas</option></select></label>
+          <label class="campo"><span>Frecuencia</span><select id="f-frec"><option value="">Todas</option><option value="D">Diaria</option><option value="M">Mensual</option><option value="T">Trimestral</option><option value="A">Anual</option></select></label>
+        </div>
+        <p class="conteo" id="conteo" aria-live="polite"></p>
+        <ul class="lista-series" id="lista-series"></ul>
+        <button type="button" class="boton-sec" id="mas" hidden>Mostrar más</button>
+        <div class="armado" id="armado">
+          <div class="armado-sel"><strong id="n-sel">0</strong> series elegidas <button type="button" class="link" id="limpiar">limpiar</button></div>
+          <label class="campo"><span>Desde</span><input type="date" id="desde"></label>
+          <label class="campo"><span>Hasta</span><input type="date" id="hasta"></label>
+          <button type="button" class="boton" id="bajar" disabled>Descargar .xlsx</button>
+          <p class="aviso" id="aviso" aria-live="polite"></p>
+        </div>
+      </div>
+      <h3>Tablas completas</h3>
+      <ul class="lista-tablas" id="tablas"></ul>
+    </div>
+  </section>
+
+  <section id="metodo" class="seccion">
+    <div class="envoltura metodo">
+      <h2>Método</h2>
+      <div class="principios">
+        <div><h3>Solo datos públicos</h3><p>Usamos series de organismos oficiales (INDEC, BCRA, Ministerio de Economía, institutos provinciales) siempre que existan. Fuentes de terceros, solo para lo que no publica ningún organismo, y siempre citadas.</p></div>
+        <div><h3>Registro antes del REM</h3><p>El pronóstico de cada mes queda guardado con fecha y hora antes de que salga el REM. Ese registro no se borra: es la prueba hacia adelante, y se puede descargar.</p></div>
+        <div><h3>Tiempo real</h3><p>Para evaluar el pasado, cada pronóstico se reconstruye solo con lo que estaba publicado en esa fecha. Nada de usar datos que llegaron después.</p></div>
+        <div><h3>Errores a la vista</h3><p>Mostramos el error contra el dato real al lado del error del REM, también cuando el REM es mejor, que en muchos casos lo es.</p></div>
+      </div>
+      <h3>Qué pronosticamos y cómo</h3>
+      <ul class="modelos" id="modelos"></ul>
+      <p class="nota">El REM es el Relevamiento de Expectativas de Mercado del BCRA: la mediana de lo que esperan unas 40 consultoras y bancos. Estos pronósticos son ejercicios estadísticos, no recomendaciones de inversión. Cita sugerida: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;.</em></p>
+    </div>
+  </section>
+</main>
+
+<footer class="pie">
+  <div class="envoltura pie-in">
+    <div>
+      <p class="pie-marca">Datos Con Método</p>
+      <p>Hecho por <strong>Marcos Cavanagh</strong> · <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a></p>
+    </div>
+    <div class="pie-txt">
+      <p>Nuestros datos propios (pronósticos, índice de supermercados y serie de precios encadenada) se publican bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="license noopener">CC BY 4.0</a>: podés usarlos libremente citando a Datos Con Método. Las series de otras fuentes conservan la licencia de su productor: citá la fuente original.</p>
+      <p id="pie-act"></p>
+    </div>
+  </div>
+</footer>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -41,12 +41,13 @@ PASOS = [
     ("Estimaciones agrícolas (Ministerio de Agricultura)", "actualizar_estimaciones_agricolas.py", "informe_estimaciones_agricolas.txt"),
     ("Pronóstico de exportaciones e importaciones", "replicar_comercio.py", "informe_comercio.txt"),
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
+    ("Sitio web Datos Con Método", "publicar_web.py", "informe_web.txt"),   # después de todos los pronósticos
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
     ("Subir scripts a GitHub (sin datos)", "subir_cambios.py", "informe_git.txt"),   # último: solo código y CLAUDE.md
 ]
 LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ERROR", "FALLA", "No se pudo",
                 "Excel", "IPC descargado", "Brecha", "Series guardadas", "Sin cambios", "Serie encadenada", "Días guardados",
-                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0")
+                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0", "Sitio publicado", "Fuentes atrasadas")
 
 
 def main():

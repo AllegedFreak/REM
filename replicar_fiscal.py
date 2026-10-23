@@ -230,7 +230,13 @@ def main():
         reg.append({"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "imig_hasta": str(ult),
                     "anio": a, "I": c_i[a] / 1000, "I_sin_meta": sin_meta / 1000, "meta_pct_pib": mv, "rem_anterior": ra.get(a, np.nan)})
     pr = C / "registro_fiscal.csv"
-    pd.DataFrame(reg).to_csv(pr, mode="a", header=not pr.exists(), index=False, encoding="utf-8-sig", float_format="%.1f")
+    nuevo = pd.DataFrame(reg)
+    if pr.exists():                                       # control: no mezclar columnas distintas bajo un mismo encabezado
+        cab = pd.read_csv(pr, nrows=0, encoding="utf-8-sig").columns.tolist()
+        if cab != nuevo.columns.tolist():
+            pr = C / f"registro_fiscal_{datetime.now():%Y%m%d}.csv"
+            L.append(f"AVISO F03: cambiaron las columnas del registro; esta corrida se guarda en {pr.name}")
+    nuevo.to_csv(pr, mode="a", header=not pr.exists(), index=False, encoding="utf-8-sig", float_format="%.1f")
     avisos = [x for x in L if x.startswith("AVISO")]
     L.append("ALERTAS: " + ("; ".join(avisos) if avisos else "ninguna. Todo en orden."))
     texto = "\n".join(L)
