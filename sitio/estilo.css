@@ -352,3 +352,13 @@ details.cond p { font-size: .8rem; color: var(--tenue); margin: 6px 0 0; max-wid
 .aviso-modelos strong { color: var(--critico); }
 
 .aviso-historia { max-width: 78ch; color: var(--tinta-2); line-height: 1.6; margin: 18px 0 0; }
+
+/* logo en el pie */
+.pie-logo { display: inline-flex; margin: 0 0 10px; }
+
+/* nota metodológica (sección Método) */
+.nota-met { max-width: 80ch; }
+.nota-met h3 { font-size: 1.15rem; margin: 28px 0 8px; }
+.nota-met p, .nota-met li { color: var(--tinta-2); line-height: 1.65; }
+.nota-met ul { padding-left: 20px; margin: 0 0 12px; }
+.nota-met li { margin: 0 0 6px; }

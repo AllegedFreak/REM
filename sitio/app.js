@@ -39,10 +39,18 @@
     return m ? `${+m[3]}-${MESES[+m[2] - 1]}-${m[1]}` : s;
   };
   const periodoTxt = (s) => (/^\d{4}-\d{2}$/.test(s) ? mesTxt(s) : s);
-  const leer = async (url) => {
-    const r = await fetch(url, { cache: "no-cache" });
-    if (!r.ok) throw new Error(`${url}: ${r.status}`);
-    return r.json();
+  // reintenta: mientras el sitio se actualiza (dos veces por día) un archivo puede faltar unos segundos
+  const leer = async (url, intentos = 4) => {
+    for (let i = 1; ; i++) {
+      try {
+        const r = await fetch(url, { cache: "no-cache" });
+        if (!r.ok) throw new Error(`${url}: ${r.status}`);
+        return await r.json();
+      } catch (e) {
+        if (i >= intentos) throw e;
+        await new Promise((ok) => setTimeout(ok, 1500 * i));
+      }
+    }
   };
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const FREC = { D: "Diaria", M: "Mensual", T: "Trimestral", A: "Anual" };
@@ -601,7 +609,6 @@
       relato(R);
       listaSellos(R);
       datos(F, CATALOGO);
-      modelos(R);
     } catch (e) {
       $("#tiles").append(el("p", { class: "cargando", text: `No se pudieron cargar los datos (${e.message}).` }));
     }

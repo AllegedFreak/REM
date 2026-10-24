@@ -130,7 +130,7 @@
       </div>
       <div id="bloques"></div>
       <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
-      <p class="aviso-historia">Como <strong>Datos Con Método</strong> recién empezó a armar sus modelos el 10 de octubre de 2026, lógicamente no tiene historia para compararse con los datos reales con 100% de transparencia al público. Tendremos que contar con su confianza al decirles que todo dato "estimado" antes del 10 de octubre de 2026 que ya tuviera un dato real publicado fue modelado sin tener en cuenta esos datos, simulando estar en el período previo a la estimación.</p>
+      <p class="aviso-historia"><strong>NOTA METODOLÓGICA:</strong> como <strong>Datos Con Método</strong> recién empezó a armar sus modelos el 13 de octubre de 2026, lógicamente no tiene historia para compararse con los datos reales con 100% de transparencia al público. Tendremos que contar con su confianza al decirles que todo dato "estimado" antes del 13 de octubre de 2026 que ya tuviera un dato real publicado fue modelado sin tener en cuenta esos datos, simulando estar en el período previo a la estimación.</p>
     </div>
   </section>
 
@@ -153,7 +153,7 @@
   <section id="datos" class="seccion">
     <div class="envoltura">
       <h2>Datos</h2>
-      <p class="intro">Todas las series que usamos, agrupadas por fuente. Cada serie se baja sola (ZIP con CSV, o Excel) o junto con otras (marcalas y elegí el período abajo). Cada fuente muestra si está al día, cuándo fue su último dato y cuándo lo bajamos. Si producís alguno de estos datos y querés que retiremos una serie, escribinos por <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a>.</p>
+      <p class="intro">Todas las series que usamos se agrupan por fuente. Podés hacer clic en una fuente y ver primero una caja con todos sus datos y, más abajo, cada serie, cada una con una cajita para tildar. Podés tildar las series que quieras (incluso de diferentes fuentes, hasta 40) y descargarlas en ZIP o en Excel, acotando la fecha si querés. Algunas series y tablas especiales, por ser muy grandes, tienen otro tratamiento. Si producís alguno de estos datos y querés que retiremos una serie, escribinos por <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a>.</p>
       <div class="buscador">
         <label class="campo campo-busca"><span>Buscar series</span><input id="busca" type="search" placeholder="Ej.: IPC, base monetaria, soja, reservas, cemento" autocomplete="off"></label>
         <label class="campo"><span>Fuente</span><select id="f-fuente"><option value="">Todas</option></select></label>
@@ -177,17 +177,96 @@
   </div>
 
   <section id="metodo" class="seccion">
-    <div class="envoltura metodo">
-      <h2>Método Resumido</h2>
-      <div class="principios">
-        <div><h3>Solo datos públicos</h3><p>Usamos series de organismos oficiales (INDEC, BCRA, Ministerio de Economía, institutos provinciales) siempre que existan. Fuentes de terceros, solo para lo que no publica ningún organismo, y siempre citadas.</p></div>
-        <div><h3>Registro antes del REM</h3><p>El pronóstico de cada mes queda guardado con fecha y hora antes de que salga el REM. Ese registro no se borra: es la prueba hacia adelante, y se puede descargar.</p></div>
-        <div><h3>Tiempo real</h3><p>Para evaluar el pasado, cada pronóstico se reconstruye solo con lo que estaba publicado en esa fecha. Nada de usar datos que llegaron después.</p></div>
-        <div><h3>Errores a la vista</h3><p>Mostramos el error contra el dato real al lado del error del REM, también cuando el REM es mejor, que en muchos casos lo es.</p></div>
-      </div>
-      <h3>Qué pronosticamos y cómo</h3>
-      <ul class="modelos" id="modelos"></ul>
-      <p class="nota">El REM es el Relevamiento de Expectativas de Mercado del BCRA: la mediana de lo que esperan unas 40 consultoras y bancos. Estos pronósticos son ejercicios estadísticos, no recomendaciones de inversión. Cita sugerida: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;.</em></p>
+    <div class="envoltura metodo nota-met">
+      <h2>Nota metodológica: Datos Con Método</h2>
+
+      <h3>1. Objetivo</h3>
+      <p>El proyecto busca construir, solo con información pública, un sistema de pronóstico de las variables macroeconómicas que releva el BCRA en su Relevamiento de Expectativas de Mercado (REM): inflación, tipo de cambio, actividad, tasa de interés, resultado fiscal y comercio exterior. El objetivo inicial no fue superar a los analistas sino <strong>replicar razonablemente su pronóstico</strong>. Se evalúa con dos criterios, en este orden:</p>
+      <ul>
+        <li>la distancia a la mediana del REM, en el mismo relevamiento y horizonte;</li>
+        <li>el error frente al dato efectivamente publicado, comparado con el del REM.</li>
+      </ul>
+      <p>Como vara de "pronosticador típico" se adoptó que el pronóstico propio caiga dentro del 80% central de la distribución de los participantes (entre los percentiles 10 y 90) en aproximadamente el 80% de los casos. Una vez alcanzada una réplica aceptable, el objetivo se amplió a evaluar si los modelos propios pueden igualar o mejorar a la mediana del REM frente al dato observado.</p>
+
+      <h3>2. Punto de partida teórico</h3>
+      <p>El trabajo empezó por la relación entre dinero y precios, siguiendo la teoría cuantitativa (MV = PY) y la intuición de que la emisión monetaria, en particular la destinada a financiar al Tesoro, precede a la inflación con rezagos.</p>
+      <ul>
+        <li><strong>Regresiones en niveles.</strong> Se reprodujeron regresiones en niveles de precios contra agregados monetarios y salarios, para 2002-2015. Dieron un ajuste aparente muy alto (R² de 0,95 a 0,99), pero con estadísticos de Durbin-Watson de 0,01 a 0,25 y sin evidencia de cointegración (Engle-Granger). Es el patrón típico de una regresión espuria.</li>
+        <li><strong>Largo plazo.</strong> La relación de largo plazo resultó compatible con la teoría: elasticidad precio-base monetaria cercana a uno.</li>
+        <li><strong>Demanda de dinero.</strong> Se estimaron modelos de corrección de error (VECM) en términos reales. El resultado más robusto fue una demanda de dinero que cae con la inflación, con una semielasticidad de entre −0,1 y −0,4 por punto de inflación mensual. El signo resultó estable en todas las especificaciones; la magnitud, no.</li>
+        <li><strong>Emisión al Tesoro.</strong> Mediante proyecciones locales (Jordà, 2005), un shock de emisión al Tesoro de 1% de la base se asocia a un aumento de precios de 0,5% a 0,6% a 12 meses. El efecto supera una prueba de placebo con emisión permutada al azar, pero aparece recién a partir de los 8 meses.</li>
+      </ul>
+      <p>La teoría encontraba sustento en el largo plazo. Pero el rezago monetario (8 a 24 meses) es más largo que la mayoría de los horizontes del REM (0 a 6 meses). En evaluaciones en tiempo real, los modelos monetarios tuvieron entre 1,8 y 2,2 veces el error de la mediana del REM.</p>
+
+      <h3>3. Problemas de medición</h3>
+      <p>Antes de modelar hubo que resolver qué serie de precios usar.</p>
+      <ul>
+        <li><strong>El IPC oficial de 2007-2015</strong> está afectado por la intervención del INDEC. Se construyeron cuatro versiones alternativas del índice, empalmando variaciones mensuales del INDEC con índices provinciales (San Luis, Neuquén) y el de la Ciudad de Buenos Aires (IPCBA).</li>
+        <li><strong>El empalme se validó con pruebas de cambio estructural:</strong> Chow, sup-F de Andrews con bootstrap salvaje, Bai-Perron y CUSUM. Para elegir el criterio de empalme se usó además una validación fuera de muestra.</li>
+        <li><strong>Algunas conclusiones dependían de la versión del índice.</strong> Por ejemplo, el efecto de la emisión neta solo es significativo con el índice oficial intervenido. Por eso se adoptó como regla correr todo análisis con todas las versiones.</li>
+        <li><strong>Se reconstruyeron las versiones históricas de cada publicación</strong> (por ejemplo, las 42 versiones del PIB trimestral desestacionalizado desde 2016). Así, cada pronóstico histórico se arma solo con la información disponible a esa fecha, y su dato "real" es el primero publicado.</li>
+      </ul>
+
+      <h3>4. Del enfoque conceptual al empírico</h3>
+      <p>Cuando las relaciones teóricas no alcanzaron para acercarse al REM, el trabajo pasó a una búsqueda sistemática de variables con capacidad predictiva. Se descargaron, normalizaron y archivaron con su historia completa más de 1.800 series:</p>
+      <ul>
+        <li><strong>BCRA:</strong> agregados, tasas, reservas y factores de explicación de la base.</li>
+        <li><strong>INDEC:</strong> precios por categoría, región y rubro; precios mayoristas; salarios; actividad; comercio exterior.</li>
+        <li><strong>Ministerio de Economía:</strong> ejecución fiscal.</li>
+        <li><strong>Banco Mundial:</strong> precios de materias primas.</li>
+        <li><strong>Mercado de futuros de dólar (CEM-A3).</strong></li>
+        <li><strong>Universidad Torcuato Di Tella:</strong> expectativas de inflación de los hogares y confianza.</li>
+        <li><strong>Alta frecuencia:</strong> precios en supermercados (SEPA), mayoristas de frutas y hortalizas, hacienda y combustibles en surtidor.</li>
+      </ul>
+      <p>Cada candidata se evaluó con un procedimiento uniforme: primero su significancia dentro de muestra, y después, sobre todo, su aporte fuera de muestra en tiempo real.</p>
+      <ul>
+        <li><strong>Las que aportaron:</strong> las expectativas de inflación de los hogares (redujeron la distancia al REM entre 12% y 34% según el horizonte), la devaluación implícita en los futuros de dólar (redujo un 47% la distancia a 12 meses) y los precios de supermercados para el mes en curso.</li>
+        <li><strong>Las que se descartaron:</strong> muchas otras candidatas razonables desde la teoría, como los precios mayoristas, la confianza del consumidor, el tipo de cambio real o las estimaciones oficiales de cosecha. Fueron significativas dentro de muestra, pero no mejoraron el pronóstico fuera de ella.</li>
+      </ul>
+
+      <h3>5. Métodos econométricos y criterios de validación</h3>
+      <ul>
+        <li><strong>Inferencia:</strong> errores estándar robustos a heterocedasticidad y autocorrelación (Newey-West), y regresión robusta de Huber para limitar la influencia de los episodios extremos de 2023-2024. También se probaron ponderaciones temporales y regularización ridge.</li>
+        <li><strong>Comparación de pronósticos:</strong> prueba de Diebold-Mariano con la corrección de muestra pequeña de Harvey, Leybourne y Newbold. Una verificación por simulación mostró que la versión sin corregir rechaza de más en horizontes largos; desde entonces, para horizontes de 6 a 24 meses se exige p &lt; 0,025.</li>
+        <li><strong>Comparaciones múltiples:</strong> correcciones de Holm y de Benjamini-Hochberg. Por ejemplo, de 720 pruebas de rezagos monetarios, 41 resultaron significativas sin corregir, 9 sobrevivieron a Holm y ninguna a Benjamini-Hochberg.</li>
+        <li><strong>Validación del código:</strong> simulaciones con proceso generador conocido y cotejo contra implementaciones de referencia, para asegurar que las rutinas recuperan los parámetros verdaderos.</li>
+        <li><strong>Placebos y permutaciones</strong> como medida principal de significancia cuando los intervalos analíticos resultaron demasiado estrechos.</li>
+        <li><strong>Evaluación en tiempo real con ventana acumulada:</strong> cada observación de entrenamiento se usa solo una vez que su resultado estaba publicado.</li>
+      </ul>
+
+      <h3>6. Por qué la economía argentina obliga a ser empírico</h3>
+      <p>La economía argentina impone límites concretos al enfoque puramente conceptual:</p>
+      <ul>
+        <li><strong>Los regímenes cambian con frecuencia:</strong> cepos cambiarios, saltos devaluatorios, desinflaciones abruptas.</li>
+        <li><strong>Las estadísticas oficiales tuvieron períodos de intervención.</strong></li>
+        <li><strong>Las muestras estables son cortas.</strong></li>
+        <li><strong>Las relaciones estimadas no son estables entre regímenes.</strong> La elasticidad de la demanda de dinero a la actividad cambia de signo según el período y la serie de precios, y el rezago entre dinero y precios parece acortarse cuando la inflación es alta.</li>
+      </ul>
+      <p>En ese contexto, una relación teóricamente correcta puede ser inútil para pronosticar a seis meses, mientras que señales de mercado o de expectativas capturan antes los cambios de régimen. El criterio adoptado fue partir de la teoría para elegir candidatas, pero decidir con evidencia fuera de muestra.</p>
+
+      <h3>7. Cómo se estiman hoy las variables del REM</h3>
+      <p>En términos generales, cada variable combina la información pública más reciente con una regla de proyección simple y verificable:</p>
+      <ul>
+        <li><strong>Inflación:</strong> regresión robusta sobre la inflación núcleo reciente y las expectativas de los hogares, con un componente estacional. Se incorpora la devaluación esperada en los futuros cuando esta es significativa, y para el mes en curso se agrega la variación de precios en supermercados.</li>
+        <li><strong>Tipo de cambio:</strong> precios de los contratos de futuros, ajustados por el descuento que la mediana del REM aplicó históricamente a cada plazo.</li>
+        <li><strong>PIB trimestral:</strong> se completa el estimador mensual de actividad (EMAE) con su tendencia reciente.</li>
+        <li><strong>Tasa TAMAR:</strong> se parte del nivel vigente y se lo ajusta según las tasas futuras implícitas en el mercado de dólar.</li>
+        <li><strong>Resultado primario:</strong> se combina la ejecución acumulada con la proyección de los meses restantes y la meta fiscal oficial, ponderada por la parte del año que falta.</li>
+        <li><strong>Comercio exterior:</strong> se proyecta desde el mismo mes del año anterior con el crecimiento reciente y, en exportaciones, con los precios internacionales de granos.</li>
+      </ul>
+      <p>Los resultados son mixtos y deben leerse con cautela:</p>
+      <ul>
+        <li><strong>Donde el desempeño es comparable o mejor que el del REM</strong>, en 2025-2026: inflación a 3-6 meses y a 12 meses, tipo de cambio a 1-6 meses y PIB del trimestre anterior. Solo en el tipo de cambio a 2 y 3 meses la ventaja es estadísticamente significativa.</li>
+        <li><strong>Donde el REM es claramente superior:</strong> la tasa de interés, la inflación del mes en curso y todo el período 2019-2024.</li>
+      </ul>
+      <p>Hay mucho por mejorar, en un proyecto que comenzó el 13 de octubre de 2026:</p>
+      <ul>
+        <li><strong>Variables que el REM releva y todavía no se modelan:</strong> inflación núcleo y desocupación.</li>
+        <li><strong>Series de alta frecuencia con historia insuficiente:</strong> la de supermercados tiene unos veinte meses.</li>
+        <li><strong>Cambios de régimen:</strong> no hay forma de anticiparlos, y es donde los modelos que miran al pasado más se equivocan.</li>
+        <li><strong>Prueba hacia adelante:</strong> la única evaluación libre de sesgo de selección recién empieza. Desde octubre de 2026, cada pronóstico se registra y se sella criptográficamente antes de la publicación del REM, y solo la acumulación de esos registros permitirá juzgar el desempeño real del sistema.</li>
+      </ul>
+      <p class="nota">Estos pronósticos son ejercicios estadísticos, no recomendaciones de inversión. Cita sugerida: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;.</em></p>
     </div>
   </section>
 </main>
@@ -195,11 +274,20 @@
 <footer class="pie">
   <div class="envoltura pie-in">
     <div>
-      <p class="pie-marca">Datos Con Método</p>
-      <p>Hecho por <strong>Marcos Cavanagh</strong> · <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a></p>
+      <a class="marca pie-logo" href="#" aria-label="Datos Con Método, volver al inicio">
+        <svg class="marca-logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="1.5" y="1.5" width="29" height="29" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+          <rect x="8" y="17" width="3.5" height="7" rx="1" fill="currentColor"/>
+          <rect x="14.25" y="12" width="3.5" height="12" rx="1" fill="currentColor"/>
+          <rect x="20.5" y="15" width="3.5" height="9" rx="1" fill="currentColor"/>
+          <circle cx="22.25" cy="8.5" r="2.25" class="marca-punto"/>
+        </svg>
+        <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
+      </a>
+      <p><strong>Marcos Cavanagh</strong> · <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a></p>
     </div>
     <div class="pie-txt">
-      <p>Nuestros datos propios (pronósticos, índice de supermercados y serie de precios encadenada) se publican bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="license noopener">CC BY 4.0</a>: podés usarlos libremente citando a Datos Con Método. Las series de otras fuentes conservan la licencia de su productor: citá la fuente original.</p>
+      <p>Nuestros datos propios (pronósticos, índice de supermercados y serie de precios encadenada) se publican bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="license noopener">CC BY 4.0</a>: podés usarlos libremente citando a Datos Con Método: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;</em>. Las series de otras fuentes conservan la licencia de su productor: citá la fuente original.</p>
       <p id="pie-act"></p>
     </div>
   </div>
