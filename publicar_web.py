@@ -130,7 +130,9 @@ def pronosticos():
             tarjetas.append({"clave": var, "titulo": tit, "unidad": "millones de USD", "modelo": "Mismo mes del año anterior × "
                              "crecimiento reciente" + (" + precios de granos" if var == "exportaciones" else ""),
                              "filas": filas, "corrida": f_c, "relevamiento": q["relevamiento"].iloc[0]})
-    return tarjetas
+    # orden de las tarjetas en el sitio (Marcos, 24-oct-2026: importaciones donde estaba el resultado primario, y viceversa)
+    orden = ["inflacion", "dolar", "pib", "tasa", "importaciones", "exportaciones", "fiscal"]
+    return sorted(tarjetas, key=lambda t: orden.index(t["clave"]) if t["clave"] in orden else 99)
 
 
 # ---------------------------------------------------------------- 1b) los datos de hoy (último valor de las variables clave)
@@ -178,7 +180,7 @@ def indicadores():
         g = (v["pib"].iloc[-1] / v["pib"].iloc[-2] - 1) * 100
         e = pd.read_parquet(C / "emae.parquet").sort_values("mes")
         em = (e["desest"].iloc[-1] / e["desest"].iloc[-2] - 1) * 100
-        agregar("pib", "PIB", g, "% trimestral s.e.", f"{int(v['anio'].iloc[-1])}T{int(v['trim'].iloc[-1])}",
+        agregar("pib", "PIB trimestral", g, "% trimestral s.e.", f"{int(v['anio'].iloc[-1])}T{int(v['trim'].iloc[-1])}",
                 f"EMAE {MESES_LARGOS[int(str(e['mes'].iloc[-1])[5:7]) - 1][:3]}-{str(e['mes'].iloc[-1])[:4]}: "
                 + f"{em:+.1f}".replace(".", ",") + "% mensual s.e.", "INDEC", 2)
     except Exception:
@@ -936,7 +938,9 @@ def tabla_comparacion():
     t["tipo"] = np.where(t["o"] >= "2026-10", "registrado antes del REM", "reconstrucción en tiempo real")
     out = pd.DataFrame({
         "variable": t["variable"], "horizonte": t["horizonte"], "periodo_pronosticado": t["periodo"], "fecha_del_pronostico": t["o"],
-        "tipo": t["tipo"], "rem_mediana": t["rem"].round(4), "datos_con_metodo": t["nuestro"].round(4), "real": t["real"].round(4),
+        "tipo": t["tipo"], "rem_mediana": t["rem"].round(4), "rem_minimo": t["minimo"].round(4), "rem_p10": t["percentil_10"].round(4),
+        "rem_p25": t["percentil_25"].round(4), "rem_p75": t["percentil_75"].round(4), "rem_p90": t["percentil_90"].round(4),
+        "rem_maximo": t["maximo"].round(4), "datos_con_metodo": t["nuestro"].round(4), "real": t["real"].round(4),
         "dif_dcm_menos_rem": (t["nuestro"] - t["rem"]).round(4), "dif_rem_menos_real": (t["rem"] - t["real"]).round(4),
         "dif_dcm_menos_real": (t["nuestro"] - t["real"]).round(4), "consultoras": n,
         "ubicacion_de_nuestro_pronostico": t["ubicacion"], "percentil_estimado": t["percentil"],
@@ -952,6 +956,7 @@ Una fila por pronóstico: variable x horizonte x período pronosticado x informe
                             datos publicados hasta esa fecha) o "registrado antes del REM" (desde oct-2026: guardado con fecha
                             y hora antes de que saliera el REM)
   rem_mediana, datos_con_metodo, real   en la unidad de la variable; real vacío si todavía no se conoce
+  rem_minimo, rem_p10, rem_p25, rem_p75, rem_p90, rem_maximo   distribución de las consultoras de ese informe del REM
   dif_*                     diferencias en la misma unidad (puntos porcentuales en inflación, PIB y tasas)
   consultoras               cantidad de participantes de ese informe del REM
   ubicacion_de_nuestro_pronostico, percentil_estimado   dónde cae nuestro pronóstico entre los de las consultoras.
@@ -1152,7 +1157,7 @@ def html_estatico(resumen):
     """Mismo contenido que dibuja app.js, escrito en el HTML: lo leen buscadores, scrapers y lectores sin JavaScript.
     Con JavaScript activo se oculta (clase "js" en <html>) y se ve la versión interactiva."""
     L = ['<section id="en-texto" class="sin-js envoltura" aria-label="Resumen en texto">',
-         f'<p>Actualizado: {_esc(resumen["generado"])} · Último REM publicado: {_per(resumen["rem_ultimo"])}. '
+         f'<p>Actualizado: {_esc(resumen["generado"])}. '
          'Datos en formato abierto: <a href="data/resumen.json">resumen.json</a> · <a href="data/catalogo.json">catalogo.json</a> · '
          '<a href="data/fuentes.json">fuentes.json</a>.</p>', "<h2>Los datos de hoy</h2>", "<ul>"]
     for x in resumen.get("indicadores") or []:
@@ -1162,7 +1167,7 @@ def html_estatico(resumen):
         det = f' · {_esc(str(x["detalle"]).rstrip("."))}' if x.get("detalle") else ""
         L.append(f'<li><strong>{_esc(x["titulo"])}</strong> ({_esc(_per(x["fecha"]))}): {pre}{_num(x["valor"], x.get("dec", 2))}{suf} '
                  f'{_esc(uni)}{det}. Fuente: {_esc(x["fuente"])}.</li>')
-    L += ["</ul>", "<h2>Pronósticos de hoy</h2>",
+    L += ["</ul>", "<h2>Pronósticos próximos 12 meses</h2>",
           f'<p>Nuestro pronóstico para el próximo informe del REM y la mediana del último REM publicado ({_per(resumen["rem_ultimo"])}).</p>']
     for t in resumen.get("pronosticos") or []:
         L.append(f'<h3>{_esc(t["titulo"])}</h3><p>{_esc(t["unidad"])}. Modelo: {_esc(t["modelo"])}.</p>')
@@ -1170,7 +1175,20 @@ def html_estatico(resumen):
         for f in t["filas"]:
             L.append(f'<tr><td>{_esc(_per(f["periodo"]))}</td><td>{_fp(t["clave"], f["nuestro"])}</td><td>{_fp(t["clave"], f["rem"])}</td></tr>')
         L.append("</tbody></table>")
-    L += ['<p>Más: <a href="#historial">cómo nos fue</a> · <a href="#sellos">verificación de que las predicciones no fueron modificadas</a> · '
+    if resumen.get("mes_en_curso"):
+        L.append("<h2>Pronósticos mes en curso</h2><ul>")
+        for x in resumen["mes_en_curso"]:
+            L.append(f"<li><strong>{_esc(x['titulo'])}</strong> ({_esc(x['periodo'])}): {x['valor']} {_esc(x['unidad'])}. {_esc(x['nota'])}</li>")
+        L.append("</ul><p><strong>Importante:</strong> estos datos son estimaciones a partir de modelos nuevos sin verificar; úselos bajo su propia responsabilidad.</p>")
+    for clave, tit in (("ultimo_rem", "Último REM publicado vs. estimaciones de Datos Con Método"), ("ultimos_reales", "Datos reales vs. Datos Con Método vs. REM (mes anterior)")):
+        b = resumen.get(clave)
+        if b:
+            L.append(f"<h2>{tit}</h2><p>{_esc(b['titular'])}</p><ul>")
+            for f in b["filas"]:
+                real = f" Dato real: {f['real']}." if "real" in f else ""
+                L.append(f"<li><strong>{_esc(f['titulo'])}</strong>:{real} REM {f['rem']} · nosotros {f['nuestro']}. {_esc(f['texto'])}</li>")
+            L.append("</ul>")
+    L += ['<p>Más: <a href="#historial">resultados de los últimos meses</a> · <a href="#sellos">verificación de que las predicciones no fueron modificadas</a> · '
           '<a href="#datos">series para descargar</a>.</p>', "</section>"]
     return "\n".join(L)
 
@@ -1243,6 +1261,11 @@ def completar_index(resumen):
             + (f": {frase}" if frase else "") + ". Series para descargar.")
     hay_img = vista_previa(resumen, NUEVO / "vista_previa.png")
     s = s.replace("<head>", '<head>\n<script>document.documentElement.classList.add("js")</script>', 1)
+    # versión en el nombre de app.js y estilo.css: Cloudflare y los navegadores guardan copias (hasta 4 h) y, sin esto,
+    # un cambio de diseño o de textos tarda horas en verse. Cada corrida pide los archivos nuevos.
+    ver = datetime.now().strftime("%Y%m%d%H%M")
+    s = s.replace('<script src="app.js"></script>', f'<script src="app.js?v={ver}"></script>', 1)
+    s = s.replace('<link rel="stylesheet" href="estilo.css">', f'<link rel="stylesheet" href="estilo.css?v={ver}">', 1)
     s = re.sub(r'<meta name="description" content="[^"]*">', lambda m: f'<meta name="description" content="{_esc(desc)}">', s, count=1)
     s = re.sub(r'<meta property="og:description" content="[^"]*">', lambda m: f'<meta property="og:description" content="{_esc(desc)}">', s, count=1)
     extra = ['<meta property="og:site_name" content="Datos Con Método">', '<meta property="og:locale" content="es_AR">',
@@ -1266,6 +1289,329 @@ def completar_index(resumen):
     s = s.replace('<main id="contenido">', '<main id="contenido">\n' + html_estatico(resumen), 1)
     idx.write_text(s, encoding="utf-8")
     return hay_img
+
+
+# ---------------------------------------------------------------- 5f) semáforo de datos: ¿están al día los datos que usan los pronósticos?
+# (decisión de Marcos, 24-oct-2026: reemplaza en el sitio al semáforo de alertas de mercado, que sigue en informe_general.txt)
+# Cada dato tiene su plazo: días máximos entre el comienzo del último período publicado y hoy, según cuándo se publica.
+# Diarios: 6 días (fines de semana largos). IPC, IMIG, UTDT: el dato del mes t sale a mediados de t+1 (75 días).
+# Comercio (ICA): ~20 de t+1 (85). Pink Sheet: comienzos de t+1 (70). EMAE: ~50 días después de cerrar el mes (125).
+# PIB trimestral: ~80 días después de cerrar el trimestre; el de un trimestre sigue siendo el último hasta que sale el
+# siguiente, ~260 días después del comienzo del trimestre (270). El plazo es el máximo justo antes de la publicación siguiente.
+INSUMOS = [
+    ("indec_ipc_general_indice_var_mensual", "IPC, nivel general (INDEC)", 75),
+    ("indec_ipc_nucleo_indice_var_mensual", "IPC, núcleo (INDEC)", 75),
+    ("utdt_ei_promedio", "Expectativas de inflación de los hogares, promedio (UTDT)", 75),
+    ("utdt_ei_mediana", "Expectativas de inflación de los hogares, mediana (UTDT)", 75),
+    ("dcm_sepa_diario_nacional", "Precios de supermercados (SEPA)", 6),
+    ("bcra_api_tc_mayorista_a3500", "Dólar mayorista A3500 (BCRA)", 6),
+    ("cem_dolar_futuro_k1_ajuste", "Dólar futuro a 1 mes (CEM)", 6),
+    ("cem_dolar_futuro_k6_ajuste", "Dólar futuro a 6 meses (CEM)", 6),
+    ("bcra_api_tamar_tna", "Tasa TAMAR (BCRA)", 6),
+    ("indec_emae_desest", "EMAE desestacionalizado (INDEC)", 125),
+    ("indec_pib_desest_pib", "PIB trimestral desestacionalizado (INDEC)", 270),
+    ("datosgob_452.3_RESULTADO_RIO_0_M_18_54", "Resultado primario, IMIG (Secretaría de Hacienda)", 80),
+    ("datosgob_74.3_IET_0_M_16", "Exportaciones (INDEC)", 85),
+    ("datosgob_74.3_IIT_0_M_25", "Importaciones (INDEC)", 85),
+    ("bm_indice_grains", "Precios de granos (Banco Mundial)", 70),
+    ("bm_indice_oils_meals", "Precios de aceites y harinas (Banco Mundial)", 70),
+]
+
+
+def semaforo_datos(cat):
+    """Porcentaje de los datos que usan los pronósticos que están al día. Verde >= 90%, amarillo >= 75%, rojo < 75%."""
+    hoy = pd.Timestamp.now().normalize()
+    por_id = cat.set_index("id")["hasta"].to_dict()
+    filas = []
+    for sid, nombre, dias in INSUMOS:
+        hasta = pd.to_datetime(por_id.get(sid), errors="coerce")
+        edad = None if pd.isna(hasta) else int((hoy - hasta).days)
+        filas.append({"id": sid, "nombre": nombre, "hasta": None if pd.isna(hasta) else str(hasta.date()),
+                      "plazo_dias": dias, "al_dia": edad is not None and edad <= dias})
+    n = sum(f["al_dia"] for f in filas)
+    pct = 100 * n / len(filas)
+    color = "verde" if pct >= 90 else "amarillo" if pct >= 75 else "rojo"
+    return {"color": color, "pct": round(pct, 1), "al_dia": n, "total": len(filas),
+            "atrasados": [f["nombre"] for f in filas if not f["al_dia"]], "detalle": filas}
+
+
+# ---------------------------------------------------------------- 5g) el relato de la portada: último REM vs nosotros y últimos datos reales
+# (pedido de Marcos, 24-oct-2026: Variables de hoy -> Pronóstico para el próximo REM -> REM nuevo vs nuestras estimaciones
+#  -> Datos reales nuevos vs nuestras predicciones y las del REM). Sale de la tabla de comparación (tabla_comparacion()).
+MESES_L = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+CLAVE_VAR = {"Inflación mensual (IPC)": "inflacion", "Inflación próximos 12 meses": "inflacion",
+             "Dólar mayorista (promedio del mes)": "dolar", "Dólar mayorista (diciembre)": "dolar", "PIB trimestral (s.e.)": "pib",
+             "Tasa TAMAR": "tasa", "Resultado primario (miles de millones de $)": "fiscal",
+             "Exportaciones (millones de USD)": "comercio", "Importaciones (millones de USD)": "comercio"}
+FUENTE_REAL = {"inflacion": "INDEC", "dolar": "BCRA", "pib": "INDEC", "tasa": "BCRA", "fiscal": "Secretaría de Hacienda", "comercio": "INDEC"}
+SEL_REM = [("Inflación mensual (IPC)", "mes del informe"), ("Inflación mensual (IPC)", "a 1 mes"),
+           ("Inflación próximos 12 meses", "próximos 12 meses"), ("Dólar mayorista (promedio del mes)", "a 1 mes"),
+           ("Dólar mayorista (diciembre)", "diciembre del año en curso"), ("PIB trimestral (s.e.)", "trimestre en curso"),
+           ("Tasa TAMAR", "a 1 mes"), ("Resultado primario (miles de millones de $)", "año en curso"),
+           ("Exportaciones (millones de USD)", "año en curso"), ("Importaciones (millones de USD)", "año en curso")]
+SEL_REAL = ["Inflación mensual (IPC)", "Dólar mayorista (promedio del mes)", "PIB trimestral (s.e.)", "Tasa TAMAR",
+            "Exportaciones (millones de USD)", "Importaciones (millones de USD)"]
+
+
+def _mes_largo(p):
+    p = str(p)
+    return f"{MESES_L[int(p[5:7]) - 1]} de {p[:4]}" if len(p) >= 7 and p[4] == "-" else p
+
+
+def _valor(clave, v):
+    if v is None or pd.isna(v):
+        return "—"
+    if clave in ("inflacion", "pib", "tasa"):
+        return _num(v, 2) + "%"
+    if clave == "dolar":
+        return ("−$" if v < 0 else "$") + _num(abs(v), 0)
+    if clave == "fiscal":
+        return ("−B$ " if v < 0 else "B$ ") + _num(abs(v) / 1000, 1)
+    return "US$ " + _num(v, 0) + " M"
+
+
+def _dif(clave, d):
+    if d is None or pd.isna(d):
+        return ""
+    lado = "más" if d > 0 else "menos"
+    a = abs(d)
+    if clave in ("inflacion", "pib", "tasa"):
+        return "lo mismo" if a < 0.005 else f"{_num(a, 2)} puntos {lado}"
+    if clave == "dolar":
+        return "lo mismo" if a < 0.5 else f"${_num(a, 0)} {lado}"
+    if clave == "fiscal":
+        return "lo mismo" if a < 50 else f"{_num(a / 1000, 1)} billones de $ {lado}"
+    return "lo mismo" if a < 0.5 else f"US$ {_num(a, 0)} millones {lado}"
+
+
+def _titulo(var, horiz, per):
+    per = str(per)
+    if var == "Inflación mensual (IPC)":
+        return f"Inflación de {_mes_largo(per)}"
+    if var == "Inflación próximos 12 meses":
+        return "Inflación de los próximos 12 meses"
+    if var == "Dólar mayorista (promedio del mes)":
+        return f"Dólar mayorista, promedio de {_mes_largo(per)}"
+    if var == "Dólar mayorista (diciembre)":
+        return f"Dólar mayorista, diciembre de {per[:4]}"
+    if var == "PIB trimestral (s.e.)":
+        return f"PIB del {per[-1]}.º trimestre de {per[:4]}"
+    if var == "Tasa TAMAR":
+        return f"Tasa TAMAR, promedio de {_mes_largo(per)}"
+    if var.startswith("Resultado primario"):
+        return f"Resultado primario de {per}"
+    nombre = "Exportaciones" if var.startswith("Exportaciones") else "Importaciones"
+    return f"{nombre} de {_mes_largo(per) if '-' in per else per}"
+
+
+def _rango(x):
+    return {k: (None if pd.isna(x[c]) else float(x[c])) for k, c in
+            (("min", "rem_minimo"), ("p10", "rem_p10"), ("p50", "rem_mediana"), ("p90", "rem_p90"), ("max", "rem_maximo"))}
+
+
+def _ubicacion(x):
+    u = str(x["ubicacion_de_nuestro_pronostico"])
+    p = x["percentil_estimado"]
+    if u.startswith("afuera"):
+        return "afuera", ("Quedó por debajo de todas las consultoras." if "bajo" in u else "Quedó por encima de todas las consultoras.")
+    if pd.isna(p):
+        return "sin_dato", ""
+    p = int(p)
+    if 10 <= p <= 90:
+        return "central", f"En la franja del medio: el {p}% de las consultoras pronosticó menos que DCM*."
+    if p < 10:
+        return "extremo", ("Entre los más bajos: ninguna consultora pronosticó menos que DCM*." if p == 0 else
+                           f"Entre los más bajos: solo el {p}% de las consultoras pronosticó menos que DCM*.")
+    return "extremo", ("Entre los más altos: ninguna consultora pronosticó más que DCM*." if p == 100 else
+                       f"Entre los más altos: solo el {100 - p}% de las consultoras pronosticó más que DCM*.")
+
+
+def historias(t, rem_ultimo):
+    """Devuelve (último REM vs nosotros, últimos datos reales vs nosotros y el REM), listos para la portada."""
+    # ---- REM nuevo vs nuestras estimaciones
+    u = t[t["fecha_del_pronostico"] == str(rem_ultimo)]
+    filas = []
+    for var, hor in SEL_REM:
+        q = u[(u["variable"] == var) & (u["horizonte"] == hor)]
+        if not len(q):
+            continue
+        x = q.iloc[0]
+        clave = CLAVE_VAR[var]
+        cat_u, txt_u = _ubicacion(x)
+        d = x["datos_con_metodo"] - x["rem_mediana"]
+        filas.append({"titulo": _titulo(var, hor, x["periodo_pronosticado"]), "clave": clave,
+                      "rem": _valor(clave, x["rem_mediana"]), "nuestro": _valor(clave, x["datos_con_metodo"]),
+                      "texto": f"DCM*: {_dif(clave, d)} que la mediana del REM. {txt_u}",
+                      "ubicacion": cat_u, "rango": _rango(x), "v_nuestro": float(x["datos_con_metodo"]),
+                      "consultoras": None if pd.isna(x["consultoras"]) else int(x["consultoras"])})
+    rem_blk = None
+    if filas:
+        n = len(filas)
+        dentro = sum(f["ubicacion"] in ("central", "extremo") for f in filas)
+        central = sum(f["ubicacion"] == "central" for f in filas)
+        k = int(pd.Series([f["consultoras"] for f in filas if f["consultoras"]]).median())
+        tipo = u["tipo"].iloc[0]
+        # texto de Marcos (24-oct-2026); si alguna estimación queda afuera, lo dice
+        titular = (f"El BCRA publicó el REM de {_mes_largo(rem_ultimo)}, con las respuestas de unos {k} participantes. "
+                   + (f"Las estimaciones de Datos Con Método quedaron todas entre las pronosticadas por las consultoras ({dentro} de {n})."
+                      if dentro == n else
+                      f"{dentro} de {n} estimaciones de Datos Con Método quedaron entre las pronosticadas por las consultoras; "
+                      f"{n - dentro} quedaron por debajo o por encima de todas."))
+        nota = ("NOTA TRANSITORIA: este informe es anterior a que empezáramos a registrar el pronóstico. Nuestros números son una reconstrucción hecha "
+                "solo con los datos que se conocían en ese momento. Desde el REM de octubre de 2026, el pronóstico queda registrado y "
+                "sellado antes de que el BCRA publique el REM." if tipo.startswith("reconstrucción") else
+                "Nuestro pronóstico quedó registrado y sellado antes de que el BCRA publicara el REM.")
+        rem_blk = {"relevamiento": str(rem_ultimo), "titular": titular, "nota": nota, "filas": filas}
+    # ---- datos reales nuevos vs nuestras predicciones y las del REM
+    mes_actual = str(pd.Timestamp.now().to_period("M"))
+    reales = []
+    for var in SEL_REAL:
+        q = t[(t["variable"] == var) & t["real"].notna()].copy()
+        per = q["periodo_pronosticado"].astype(str)
+        mensual = per.str.fullmatch(r"\d{4}-\d{2}")
+        if var != "PIB trimestral (s.e.)":
+            q = q[mensual & (per < mes_actual)]          # solo meses cerrados (el promedio del mes en curso todavía no es el dato)
+        if not len(q):
+            continue
+        ultimo = q["periodo_pronosticado"].astype(str).max()
+        q = q[q["periodo_pronosticado"].astype(str) == ultimo].sort_values("fecha_del_pronostico")
+        x = q.iloc[-1]                                     # el pronóstico más reciente antes del dato
+        clave = CLAVE_VAR[var]
+        e_n, e_r = abs(x["datos_con_metodo"] - x["real"]), abs(x["rem_mediana"] - x["real"])
+        tol = {"inflacion": 0.005, "pib": 0.005, "tasa": 0.005, "dolar": 0.5}.get(clave, 0.5)
+        gana = "empate" if abs(e_n - e_r) < tol else ("nosotros" if e_n < e_r else "rem")
+        frase = {"nosotros": "Estuvo más cerca DCM*.", "rem": "Estuvo más cerca el REM.", "empate": "Empate: DCM* y el REM quedaron a la misma distancia."}[gana]
+        extra = ""
+        if not pd.isna(x["mas_cerca_del_real_que_el_pct_de_consultoras"]):
+            pu = str(x["puesto_estimado_por_acierto"]).replace("≈ ", "")
+            extra = (f" El pronóstico de DCM* quedó más cerca del dato que el {int(x['mas_cerca_del_real_que_el_pct_de_consultoras'])}% "
+                     f"de las consultoras (puesto aproximado: {pu}).")
+        reales.append({"titulo": _titulo(var, x["horizonte"], ultimo), "clave": clave, "fuente": FUENTE_REAL[clave],
+                       "real": _valor(clave, x["real"]), "rem": _valor(clave, x["rem_mediana"]), "nuestro": _valor(clave, x["datos_con_metodo"]),
+                       "gana": gana, "texto": frase + extra,
+                       "cuando": f"Pronósticos del REM de {_mes_largo(x['fecha_del_pronostico'])}"
+                                 + (" (reconstrucción)" if str(x["tipo"]).startswith("reconstrucción") else ""),
+                       "rango": _rango(x), "v_nuestro": float(x["datos_con_metodo"]), "v_real": float(x["real"])})
+    real_blk = None
+    if reales:
+        a = sum(r["gana"] == "rem" for r in reales)
+        b = sum(r["gana"] == "nosotros" for r in reales)
+        real_blk = {"titular": f"De las {len(reales)} variables con dato nuevo, Datos Con Método estuvo más cerca en {b} y el REM en {a}"
+                               + (f" ({len(reales) - a - b} empate)" if len(reales) - a - b == 1 else
+                                  f" ({len(reales) - a - b} empates)" if len(reales) - a - b > 1 else "") + "."
+                               # cierre de Marcos (24-oct-2026), cuando el REM estuvo más cerca en más variables
+                               + (" Hay espacio para mejorar." if a > b else ""),
+                    "filas": reales}
+    return rem_blk, real_blk
+
+
+# ---------------------------------------------------------------- 5h) pronósticos del mes en curso (pedido de Marcos, 24-oct-2026)
+# Una caja por variable del REM, en el orden de "Variables de hoy". Inflación, PIB, resultado primario y comercio: el primer
+# período de nuestro pronóstico registrado. Dólar y TAMAR (el REM no pide el mes en curso): estimación nueva del promedio
+# del mes = días publicados + días hábiles que faltan (dólar: en línea recta hasta el futuro de fin de mes del CEM;
+# TAMAR: igual a la última tasa publicada). Modelos sin verificar: la página lo advierte.
+def _promedio_mes(serie, hoy):
+    b = pd.read_parquet(C / "bcra_series.parquet", columns=["fecha", "serie", "valor"])
+    b = b[b["serie"] == serie].dropna(subset=["valor"])
+    b["fecha"] = pd.to_datetime(b["fecha"])
+    mes = hoy.to_period("M")
+    m = b[b["fecha"].dt.to_period("M") == mes].sort_values("fecha")
+    if not len(m):
+        return None
+    ultimo = m["fecha"].iloc[-1]
+    faltan = pd.bdate_range(ultimo + pd.Timedelta(days=1), mes.end_time.normalize())
+    return m, ultimo, faltan
+
+
+def mes_en_curso(tarjetas):
+    hoy = pd.Timestamp.now().normalize()
+    mes = str(hoy.to_period("M"))
+    nombre_mes = _mes_largo(mes).replace(" de ", " ").capitalize()
+    P = {t["clave"]: t for t in tarjetas}
+    out = []
+
+    def primera(clave, per=None):
+        t = P.get(clave)
+        if not t:
+            return None
+        for f in t["filas"]:
+            if f["nuestro"] is not None and not pd.isna(f["nuestro"]) and (per is None or str(f["periodo"]) == per):
+                return f
+        return None
+
+    f = primera("inflacion", mes)
+    if f:
+        out.append({"clave": "inflacion", "titulo": "Inflación", "periodo": nombre_mes, "valor": _num(f["nuestro"], 2) + "%",
+                    "unidad": "mensual (IPC nacional)", "nota": "Incluye los precios de supermercados del mes en curso."})
+    # dólar: promedio del mes en curso
+    r = _promedio_mes("tc_mayorista_a3500", hoy)
+    if r:
+        m, ultimo, faltan = r
+        obs = list(m["valor"])
+        nota = f"Promedio de {len(obs)} días con dato (hasta el {ultimo:%d/%m})"
+        if len(faltan):
+            f_ = pd.read_parquet(C / "dolar_futuro_cem.parquet", columns=["symbol", "settlement", "fecha", "optionType"])
+            simbolo = f"DLR{hoy:%m%Y}"
+            f_ = f_[(f_["symbol"] == simbolo) & (f_["optionType"].isna() | (f_["optionType"] == ""))].sort_values("fecha")
+            if len(f_):
+                fin = float(f_["settlement"].iloc[-1])
+                paso = (fin - obs[-1]) / len(faltan)
+                obs += [obs[-1] + paso * (i + 1) for i in range(len(faltan))]
+                nota += f" y {len(faltan)} días hábiles que faltan, en línea recta hasta el dólar futuro de fin de mes (${_num(fin, 0)})."
+            else:
+                obs += [obs[-1]] * len(faltan)
+                nota += f" y {len(faltan)} días hábiles que faltan, iguales al último dato."
+        else:
+            nota += "."
+        out.append({"clave": "dolar", "titulo": "Dólar mayorista (A3500)", "periodo": nombre_mes, "valor": "$" + _num(sum(obs) / len(obs), 2),
+                    "unidad": "$ por USD, promedio del mes", "nota": nota})
+    f = primera("pib")
+    if f:
+        q = str(f["periodo"])
+        out.append({"clave": "pib", "titulo": "PIB trimestral", "periodo": q.replace("Q", " T"), "valor": _num(f["nuestro"], 2) + "%",
+                    "unidad": "contra el trimestre anterior, s.e.", "nota": "Último trimestre todavía sin dato oficial del INDEC."})
+    # precios en supermercados, proyectado a fin de mes: los días que faltan siguen el ritmo de las últimas dos semanas
+    # (pendiente diaria en logaritmos); variación = promedio del mes completo contra el promedio del mes anterior
+    try:
+        d = pd.read_parquet(C / "sepa_indice_diario.parquet")
+        d = d[(d["region"] == "Nacional") & (d["nivel"] == "total")].copy()
+        d["fecha"] = pd.to_datetime(d["fecha"])
+        d = d.set_index("fecha")["indice"].sort_index()
+        p_m = hoy.to_period("M")
+        act, ant = d[d.index.to_period("M") == p_m], d[d.index.to_period("M") == p_m - 1]
+        if len(act) >= 7 and len(ant) >= 15:
+            u14 = act[act.index > act.index[-1] - pd.Timedelta(days=14)]
+            x = (u14.index - u14.index[0]).days.values.astype(float)
+            pend = float(np.polyfit(x, np.log(u14.values), 1)[0]) if len(u14) >= 5 else 0.0
+            faltan = pd.date_range(act.index[-1] + pd.Timedelta(days=1), p_m.end_time.normalize(), freq="D")
+            proy = [float(act.iloc[-1]) * np.exp(pend * (i + 1)) for i in range(len(faltan))]
+            var = (np.mean(list(act.values) + proy) / ant.mean() - 1) * 100
+            out.append({"clave": "super", "titulo": "Precios en supermercados", "periodo": nombre_mes, "valor": _num(var, 2) + "%",
+                        "unidad": "en el mes, proyectado a fin de mes",
+                        "nota": f"Promedio del mes contra el del mes anterior (SEPA). Datos hasta el {act.index[-1]:%d/%m}; los "
+                                f"{len(faltan)} días que faltan siguen el ritmo de las últimas dos semanas "
+                                f"({_num((np.exp(pend * 7) - 1) * 100, 2)}% por semana)."})
+    except Exception:
+        pass
+    f = primera("fiscal")
+    if f:
+        out.append({"clave": "fiscal", "titulo": "Resultado primario", "periodo": f"Año {f['periodo']}",
+                    "valor": ("−B$ " if f["nuestro"] < 0 else "B$ ") + _num(abs(f["nuestro"]), 1), "unidad": "billones de $",
+                    "nota": "El REM pide el año completo, no el mes."})
+    r = _promedio_mes("tamar_tna", hoy)
+    if r:
+        m, ultimo, faltan = r
+        obs = list(m["valor"]) + [float(m["valor"].iloc[-1])] * len(faltan)
+        nota = (f"Promedio de {len(m)} días con dato (hasta el {ultimo:%d/%m})"
+                + (f" y {len(faltan)} días hábiles que faltan, iguales a la última tasa ({_num(m['valor'].iloc[-1], 2)}%)." if len(faltan) else "."))
+        out.append({"clave": "tamar", "titulo": "Tasa TAMAR", "periodo": nombre_mes, "valor": _num(sum(obs) / len(obs), 2) + "%",
+                    "unidad": "TNA, promedio del mes", "nota": nota})
+    for clave, tit in (("exportaciones", "Exportaciones"), ("importaciones", "Importaciones")):
+        f = primera(clave, mes)
+        if f:
+            out.append({"clave": clave, "titulo": tit, "periodo": nombre_mes, "valor": "US$ " + _num(f["nuestro"], 0) + " M",
+                        "unidad": "millones de USD", "nota": ""})
+    return out
 
 
 # ---------------------------------------------------------------- 6) armar y publicar
@@ -1293,6 +1639,12 @@ def main():
     canasta = canasta_ultimo_anio(NUEVO / "descargas" / "canasta")
     fu, cat = fuentes(cat, fichas, canasta, crudos)
     resumen["sellos"] = sellos(NUEVO / "sellos")
+    resumen["semaforo_datos"] = semaforo_datos(cat)
+    resumen["mes_en_curso"] = mes_en_curso(resumen["pronosticos"])
+    resumen["ultimo_rem"], resumen["ultimos_reales"] = historias(tabla_comparacion(), resumen["rem_ultimo"])
+    sd = resumen["semaforo_datos"]
+    L.append(f"Semáforo de datos: {sd['color'].upper()} ({sd['al_dia']} de {sd['total']} datos de los pronósticos al día, {sd['pct']}%)"
+             + (f"; atrasados: {', '.join(sd['atrasados'])}" if sd["atrasados"] else ""))
     guardar_json(data / "resumen.json", resumen)
     if not completar_index(resumen):
         L.append("Aviso W03: no se pudo generar la imagen de vista previa (vista_previa.png); el sitio se publica sin ella.")

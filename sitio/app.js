@@ -49,6 +49,31 @@
   const ESTADO_TXT = { verde: "Al día", amarillo: "Algo atrasada", rojo: "Atrasada", gris: "Histórica" };
   const puntoEstado = (col, txt) => el("span", { class: "estado" }, el("span", { class: `punto ${col}`, "aria-hidden": "true" }), txt || ESTADO_TXT[col] || col);
 
+  // ---------- menú desplegable "Pronósticos" (se posiciona fijo debajo del botón: la barra de menú se desplaza en el celular)
+  (function () {
+    const grupo = $("#grupo-pron"), btn = $("#btn-pron"), menu = $("#menu-pron");
+    if (!grupo) return;
+    let cierre = null;
+    const ubicar = () => {
+      const r = btn.getBoundingClientRect();
+      menu.style.top = `${r.bottom + 6}px`;
+      menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+    };
+    const abrir = () => { clearTimeout(cierre); menu.classList.add("abierto"); btn.setAttribute("aria-expanded", "true"); ubicar(); };
+    const cerrar = () => { clearTimeout(cierre); menu.classList.remove("abierto"); btn.setAttribute("aria-expanded", "false"); };
+    btn.addEventListener("click", (e) => { e.stopPropagation(); menu.classList.contains("abierto") ? cerrar() : abrir(); });
+    if (window.matchMedia("(hover: hover)").matches) {
+      grupo.addEventListener("mouseenter", abrir);
+      grupo.addEventListener("mouseleave", () => { cierre = setTimeout(cerrar, 200); });
+    }
+    menu.addEventListener("click", (e) => { if (e.target.closest("a")) cerrar(); });
+    document.addEventListener("click", (e) => { if (!grupo.contains(e.target)) cerrar(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && menu.classList.contains("abierto")) { cerrar(); btn.focus(); } });
+    window.addEventListener("resize", () => { if (menu.classList.contains("abierto")) ubicar(); });
+    window.addEventListener("scroll", () => { if (menu.classList.contains("abierto")) ubicar(); }, { passive: true });
+    $(".nav").addEventListener("scroll", cerrar, { passive: true });
+  })();
+
   // ---------- tema claro / oscuro
   const raiz = document.documentElement;
   try { const t = localStorage.getItem("dcm-tema"); if (t) raiz.dataset.theme = t; } catch (e) { /* sin almacenamiento */ }
@@ -74,13 +99,16 @@
       tile("Series al día", el("p", { class: "tile-val", text: `${nf(0).format(R.conteo.series_al_dia)} de ${nf(0).format(R.conteo.series_vigentes)}` }),
         `${al} de ${vivas} fuentes al día · ${nf(0).format(R.conteo.series_historicas)} series históricas no cuentan`),
     );
-    if (R.semaforo) {
-      const s = R.semaforo.semaforo || "";
-      const col = { VERDE: "verde", AMARILLO: "amarillo", ROJO: "rojo" }[s] || "gris";
-      const v = el("p", { class: "tile-val" }, puntoEstado(col, s.charAt(0) + s.slice(1).toLowerCase()));
+    // semáforo de datos: qué parte de los datos que usan los pronósticos está al día (verde >= 90%, amarillo >= 75%, rojo < 75%)
+    if (R.semaforo_datos) {
+      const d = R.semaforo_datos;
+      const v = el("p", { class: "tile-val" }, puntoEstado(d.color, `${d.color.charAt(0).toUpperCase()}${d.color.slice(1)}`));
       v.querySelector(".estado").style.fontSize = "1.4rem";
       v.querySelector(".punto").style.cssText = "width:16px;height:16px";
-      tiles.append(tile("Semáforo de alertas", v, R.semaforo.senales_en_alerta ? `${R.semaforo.senales_en_alerta} señales fuera de lo normal` : "ninguna señal fuera de lo normal"));
+      const sub = `${fmt(d.pct, 0)}% de los datos al día` + (d.atrasados.length ? ` · atrasado: ${d.atrasados.join(", ")}` : "");
+      const t = tile("Datos de los pronósticos", v, sub);
+      t.title = "Verde: 90% o más de los datos que usan los pronósticos están al día. Amarillo: entre 75% y 90%. Rojo: menos de 75%.";
+      tiles.append(t);
     }
     // los datos de hoy: último valor de las variables clave
     const hoy = $("#hoy");
@@ -89,18 +117,24 @@
       const pre = { dolar: "$", ccl: "$", mep: "$", fiscal: "B$ " }[x.clave] || "";
       const suf = x.unidad.startsWith("%") || x.clave === "tamar" ? "%" : "";
       const val = `${pre}${fmt(x.valor, x.dec)}${suf}`;
-      // con pronóstico del REM: la tarjeta lleva a nuestro pronóstico; sin REM (CCL, MEP, súper): sin vínculo
+      // enlaces al pie: "Ver pronóstico" (solo las que pide el REM) y "Ver serie histórica" (la serie en la sección Datos)
       const destino = { inflacion: "inflacion", dolar: "dolar", pib: "pib", fiscal: "fiscal", tamar: "tasa" }[x.clave];
-      hoy.append(el(destino ? "a" : "div", destino
-        ? { class: "tile tile-hoy tile-link", href: `#pron-${destino}`, title: "Ver nuestro pronóstico y el del REM" }
-        : { class: "tile tile-hoy" },
+      const serie = SERIE_HOY[x.clave];
+      const pie = el("p", { class: "tile-fuente" }, `Fuente: ${x.fuente}`);
+      if (destino) pie.append(" · ", el("a", { href: `#pron-${destino}`, text: "Ver pronóstico →" }));
+      if (serie) {
+        const a = el("a", { href: `?q=${encodeURIComponent(serie)}#datos`, text: "Ver serie histórica →" });
+        a.addEventListener("click", (e) => { e.preventDefault(); verSerie(serie); });
+        pie.append(" · ", a);
+      }
+      hoy.append(el("div", { class: "tile tile-hoy" },
         el("p", { class: "tile-et" }, x.titulo, el("span", { class: "tile-fecha", text: fecha })),
         el("p", { class: "tile-val", text: val }),
         el("p", { class: "tile-uni", text: x.unidad.startsWith("%") ? x.unidad.slice(1).trim() : x.clave === "tamar" ? "TNA" : x.unidad }),
         x.detalle ? el("p", { class: "tile-sub", text: x.detalle }) : null,
-        el("p", { class: "tile-fuente", text: `Fuente: ${x.fuente}` })));
+        pie));
     }
-    $("#actualizado").textContent = `Actualizado: ${R.generado} · Último REM publicado: ${mesTxt(R.rem_ultimo)}`;
+    $("#actualizado").textContent = `Actualizado: ${R.generado}`;
     $("#pie-act").textContent = `Última actualización: ${R.generado}`;
   }
 
@@ -115,25 +149,23 @@
   }
   function tarjetas(R) {
     const cont = $("#tarjetas");
-    $("#pron-intro").textContent = `Nuestro pronóstico para el próximo informe del REM, junto a la mediana del último REM publicado (${mesTxt(R.rem_ultimo)}) para el mismo período. "Dif." es nuestro menos el REM.`;
+    $("#pron-intro").textContent = `Estimaciones de Datos Con Método para el próximo REM vs. lo estimado para el mismo período en el REM del mes anterior (${mesTxt(R.rem_ultimo)}).`;
     for (const t of R.pronosticos) {
       const d = DEC[t.clave] ?? 2;
       const prim = t.filas.find((f) => f.nuestro !== null) || t.filas[0];
       const tb = el("table", { class: "tabla" },
-        el("thead", {}, el("tr", {}, el("th", { text: "Período" }), el("th", { class: "num" }, el("span", { class: "marca-nuestro", text: "Nuestro" })),
-          el("th", { class: "num" }, el("span", { class: "marca-rem", text: "REM ant." })), el("th", { class: "num", text: "Dif." }))));
+        el("thead", {}, el("tr", {}, el("th", { text: "Período" }), el("th", { class: "num", title: "Datos Con Método" }, el("span", { class: "marca-nuestro", text: "DCM*" })),
+          el("th", { class: "num", title: "Mediana del REM del mes anterior" }, el("span", { class: "marca-rem", text: "REM ant." })))));
       const tbody = el("tbody");
       for (const f of t.filas) {
-        const dif = f.nuestro !== null && f.rem !== null ? f.nuestro - f.rem : null;
         tbody.append(el("tr", {}, el("td", { text: periodoTxt(f.periodo) }), el("td", { class: "num", text: fv(t.clave, f.nuestro, d) }),
-          el("td", { class: "num", text: fv(t.clave, f.rem, d) }), el("td", { class: "num dif", text: dif === null ? "—" : fv(t.clave, dif, d, true) })));
+          el("td", { class: "num", text: fv(t.clave, f.rem, d) })));
       }
       tb.append(tbody);
       cont.append(el("article", { class: "tarjeta", id: `pron-${t.clave}` },
         el("h3", { text: t.titulo }), el("p", { class: "unidad", text: t.unidad }),
         el("p", { class: "destacado" }, el("span", { class: "num-grande", text: fv(t.clave, prim.nuestro, d) }), el("span", { class: "per", text: periodoTxt(prim.periodo) })),
         el("div", { class: "desborde" }, tb),
-        el("p", { class: "modelo", text: t.modelo }),
         el("p", { class: "registro", text: `Registrado ${t.corrida} · informe de ${mesTxt(t.relevamiento)}` })));
     }
   }
@@ -163,32 +195,30 @@
       const unidadErr = b.error === "pct" ? "%" : "";
       const tb = el("table", { class: "tabla" });
       tb.append(el("thead", {},
-        el("tr", {}, el("th", { text: "" }), el("th", { class: "num", colspan: "3", text: "2025-26" }), el("th", { class: "num", colspan: "2", text: "Toda la muestra" })),
-        el("tr", {}, el("th", { text: "Horizonte" }), el("th", { class: "num" }, el("span", { class: "marca-nuestro", text: "Nuestro" })),
-          el("th", { class: "num" }, el("span", { class: "marca-rem", text: "REM" })), el("th", { class: "num sub-col", text: "Más cerca" }),
-          el("th", { class: "num", text: "Nuestro" }), el("th", { class: "num", text: "REM" }))));
+        el("tr", {}, el("th", { text: "" }), el("th", { class: "num", colspan: "3", text: "2025-26" })),
+        el("tr", {}, el("th", { text: "Horizonte" }), el("th", { class: "num", title: "Datos Con Método" }, el("span", { class: "marca-nuestro", text: "DCM*" })),
+          el("th", { class: "num" }, el("span", { class: "marca-rem", text: "REM" })),
+          el("th", { class: "num sub-col", title: "Porcentaje de veces que el pronóstico de DCM* quedó más cerca del dato real que el REM", text: "% en que DCM* le ganó al REM" }))));
       const tbody = el("tbody");
       let gana = 0, total = 0;
       for (const f of b.filas) {
-        const a = f.actual, t = f.todo;
+        const a = f.actual;
         if (a) { total++; if (a.nuestro < a.rem) gana++; }
         tbody.append(el("tr", {},
           el("td", { text: etiquetaH(b.clave, f.h) }),
           el("td", { class: "num", text: a ? fmt(a.nuestro, d) + unidadErr : "—" }),
           el("td", { class: "num", text: a ? fmt(a.rem, d) + unidadErr : "—" }),
-          el("td", { class: "num", text: a ? `${fmt(a.gana_pct, 0)}% (n ${a.n})` : "—" }),
-          el("td", { class: "num", text: t ? fmt(t.nuestro, d) + unidadErr : "—" }),
-          el("td", { class: "num", text: t ? fmt(t.rem, d) + unidadErr : "—" })));
+          el("td", { class: "num", text: a ? `${fmt(a.gana_pct, 0)}% (n ${a.n})` : "—" })));
       }
       tb.append(tbody);
       const ver = total ? (gana === total ? ["gana", "▲ Mejor que el REM en 2025-26"] : gana === 0 ? ["pierde", "▼ El REM fue mejor en 2025-26"]
         : ["pierde", `◆ Mejor que el REM en ${gana} de ${total} horizontes (2025-26)`]) : null;
-      const canvas = el("canvas", { role: "img", "aria-label": `${b.titulo}: dato real, REM y nuestro pronóstico` });
+      const canvas = el("canvas", { role: "img", "aria-label": `${b.titulo}: dato real, REM y pronóstico de Datos Con Método` });
       const art = el("article", { class: "bloque" },
         el("div", {}, el("h3", { text: b.titulo }), el("p", { class: "unidad", text: `Error medio en ${b.unidad}` }),
           ver ? el("p", { class: "veredicto" }, el("span", { class: `insignia ${ver[0]}`, text: ver[1] })) : null,
           el("div", { class: "tabla-scroll", style: "border:0" }, tb),
-          el("p", { class: "nota", text: "\"Más cerca\": % de veces que nuestro pronóstico quedó más cerca del dato real que el REM." })),
+          el("p", { class: "nota", text: "\"% en que DCM* le ganó al REM\": porcentaje de veces que el pronóstico de DCM* quedó más cerca del dato real que el REM; n = cantidad de comparaciones." })),
         el("div", {}, el("div", { class: "grafico" }, canvas), el("p", { class: "nota", text: b.nota })));
       cont.append(art);
       graficos.push({ canvas, b, chart: null });
@@ -206,7 +236,7 @@
         pointRadius: 0, pointHoverRadius: 4, pointHoverBorderColor: sup, pointHoverBorderWidth: 2, borderDash: guion || [], spanGaps: false, tension: 0 });
       g.chart = new Chart(g.canvas, {
         type: "line",
-        data: { labels: gr.x.map(periodoTxt), datasets: [serie("Dato real", gr.real, css("--real"), 2), serie("REM", gr.rem, css("--rem"), 2), serie("Nuestro", gr.nuestro, css("--acento"), 2)] },
+        data: { labels: gr.x.map(periodoTxt), datasets: [serie("Dato real", gr.real, css("--real"), 2), serie("REM", gr.rem, css("--rem"), 2), serie("DCM*", gr.nuestro, css("--acento"), 2)] },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false,
           interaction: { mode: "index", intersect: false },
@@ -437,6 +467,22 @@
     } catch (e) { $("#aviso").textContent = `No se pudo armar el archivo (${e.message}).`; }
   }
 
+  // serie histórica de cada tarjeta de "Variables de hoy" (código del catálogo)
+  const SERIE_HOY = {
+    inflacion: "indec_ipc_general_indice_var_mensual", dolar: "bcra_api_tc_mayorista_a3500", ccl: "argentinadatos_dolar_ccl",
+    mep: "argentinadatos_dolar_mep", pib: "indec_pib_desest_pib", super: "dcm_sepa_mensual_nacional",
+    fiscal: "datosgob_452.3_RESULTADO_RIO_0_M_18_54", tamar: "bcra_api_tamar_tna",
+  };
+  // busca la serie por su código en la sección Datos (abre su fuente) y baja hasta ahí; la dirección queda compartible
+  function verSerie(id) {
+    $("#busca").value = id;
+    $("#f-fuente").value = "";
+    $("#f-frec").value = "";
+    $("#f-estado").value = "";
+    render();
+    try { history.replaceState(null, "", `?q=${encodeURIComponent(id)}#datos`); } catch (e) { /* sin historial */ }
+    $("#datos").scrollIntoView({ behavior: "smooth" });
+  }
   function datos(F, cat) {
     FUENTES = F;
     const inst = Object.fromEntries(F.map((f) => [f.id, f.institucion]));
@@ -454,6 +500,63 @@
     if (u.get("q")) $("#busca").value = u.get("q");
     if (u.get("fuente")) $("#f-fuente").value = u.get("fuente");
     render();
+  }
+
+  // ---------- pronósticos del mes en curso
+  function mesEnCurso(R) {
+    const cont = $("#mes-curso");
+    for (const x of R.mes_en_curso || []) {
+      cont.append(el("div", { class: "tile tile-hoy" },
+        el("p", { class: "tile-et" }, x.titulo, el("span", { class: "tile-fecha", text: x.periodo })),
+        el("p", { class: "tile-val", text: x.valor }),
+        el("p", { class: "tile-uni", text: x.unidad }),
+        x.nota ? el("p", { class: "tile-sub", text: x.nota }) : null));
+    }
+  }
+
+  // ---------- el relato: REM nuevo vs nosotros, y datos reales nuevos vs nosotros y el REM
+  // barra con el rango de las consultoras (mín-máx), su 80% central (P10-P90), la mediana, nuestro valor y (si hay) el dato real
+  function barraRango(r, nuestro, real) {
+    const vals = [r.min, r.max, nuestro, real].filter((v) => v !== null && v !== undefined && !Number.isNaN(v));
+    if (r.min === null || r.max === null || vals.length < 3) return null;
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = (hi - lo) * 0.06 || 1;
+    lo -= pad; hi += pad;
+    const x = (v) => `${(100 * (v - lo)) / (hi - lo)}%`;
+    const b = el("div", { class: "rango", role: "img", "aria-label": "Rango de las consultoras con la mediana del REM y el pronóstico de Datos Con Método" });
+    b.append(el("span", { class: "r-linea", style: `left:${x(r.min)};width:calc(${x(r.max)} - ${x(r.min)})` }));
+    if (r.p10 !== null && r.p90 !== null) b.append(el("span", { class: "r-banda", style: `left:${x(r.p10)};width:calc(${x(r.p90)} - ${x(r.p10)})` }));
+    if (r.p50 !== null) b.append(el("span", { class: "r-rem", style: `left:${x(r.p50)}`, title: "Mediana del REM" }));
+    if (real !== null && real !== undefined) b.append(el("span", { class: "r-real", style: `left:${x(real)}`, title: "Dato real" }));
+    b.append(el("span", { class: "r-dcm", style: `left:${x(nuestro)}`, title: "Pronóstico de Datos Con Método" }));
+    return b;
+  }
+  function historia(f, conReal) {
+    const num = (et, v, cls) => el("div", { class: `h-num ${cls}` }, el("span", { class: "h-et", text: et }), el("span", { class: "h-v", text: v }));
+    const ganador = conReal ? { nosotros: "Más cerca: DCM*", rem: "Más cerca: el REM", empate: "Empate" }[f.gana] : null;
+    return el("article", { class: `historia${conReal ? ` gana-${f.gana}` : ""}` },
+      el("div", { class: "h-cab" }, el("h3", { text: f.titulo }), ganador ? el("span", { class: "h-gana", text: ganador }) : null),
+      el("div", { class: "h-nums" },
+        conReal ? num(`Dato real (${f.fuente})`, f.real, "n-real") : null,
+        num("REM (mediana)", f.rem, "n-rem"),
+        num("DCM*", f.nuestro, "n-dcm")),
+      barraRango(f.rango, f.v_nuestro, conReal ? f.v_real : null),
+      el("p", { class: "h-txt", text: f.texto }),
+      conReal ? el("p", { class: "h-cuando", text: f.cuando }) : null);
+  }
+  function relato(R) {
+    const u = R.ultimo_rem;
+    if (u) {
+      $("#ur-titular").textContent = u.titular;
+      const m = /^(NOTA TRANSITORIA:)\s*(.*)$/.exec(u.nota);
+      if (m) $("#ur-nota").append(el("strong", { text: m[1] }), ` ${m[2]}`); else $("#ur-nota").textContent = u.nota;
+      for (const f of u.filas) $("#ur-filas").append(historia(f, false));
+    }
+    const r = R.ultimos_reales;
+    if (r) {
+      $("#re-titular").textContent = r.titular;
+      for (const f of r.filas) $("#re-filas").append(historia(f, true));
+    }
   }
 
   // ---------- pronósticos sellados
@@ -492,8 +595,10 @@
     try {
       const [R, F, CATALOGO] = await Promise.all([leer("data/resumen.json"), leer("data/fuentes.json"), leer("data/catalogo.json")]);
       portada(R, F);
+      mesEnCurso(R);
       tarjetas(R);
       bloques(R);
+      relato(R);
       listaSellos(R);
       datos(F, CATALOGO);
       modelos(R);

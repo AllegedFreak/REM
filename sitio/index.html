@@ -34,9 +34,19 @@
       <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
     </a>
     <nav class="nav" aria-label="Secciones">
-      <a href="#pronosticos">Pronósticos</a>
-      <a href="#historial">Cómo nos fue</a>
-      <a href="#sellos">Verificación</a>
+      <a href="#datos-hoy">Hoy</a>
+      <div class="nav-grupo" id="grupo-pron">
+        <button type="button" class="nav-btn" id="btn-pron" aria-expanded="false" aria-controls="menu-pron">Pronósticos
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-menu" id="menu-pron">
+          <a href="#mes-en-curso">Mes en curso</a>
+          <a href="#pronosticos">Próximos 12 meses</a>
+          <a href="#ultimo-rem">Último REM</a>
+          <a href="#resultados">Resultados</a>
+          <a href="#historial">Historial</a>
+          <a href="#sellos">Verificación</a>
+        </div>
+      </div>
       <a href="#datos">Datos</a>
       <a href="#metodo">Método</a>
     </nav>
@@ -50,34 +60,77 @@
   <section class="portada">
     <div class="envoltura">
       <p class="sobretitulo">Datos abiertos · método a la vista</p>
-      <h1>Pronósticos de la economía argentina hechos con datos públicos.</h1>
-      <p class="bajada">Cada mes registramos nuestro pronóstico de expectativas macroeconómicas <strong>antes</strong> de que el BCRA publique el REM<a class="ast" href="#nota-rem" aria-describedby="nota-rem">*</a>, y después lo comparamos con el mismo y, finalmente, con lo que realmente pasó. Mostramos dónde acertamos y dónde no. Toda la información utilizada para los cálculos está disponible al público en la sección <a href="#datos">Datos</a>.</p>
-      <p class="nota-rem" id="nota-rem">* REM: Relevamiento de Expectativas de Mercado. Todos los meses el Banco Central les pregunta a unas 40 consultoras, bancos y centros de estudio qué esperan para la inflación, el dólar, la actividad, las tasas y otras variables en los próximos meses. Es la referencia más confiable en Argentina sobre lo que se espera de la economía.</p>
-      <div class="tiles" id="tiles" aria-live="polite"></div>
-      <p class="actualizado" id="actualizado"></p>
-      <h2 class="hoy-tit">Los datos de hoy</h2>
+      <h1>Datos y pronósticos de la economía argentina hechos con datos públicos.</h1>
+      <h2 class="hoy-tit" id="datos-hoy">Variables de hoy</h2>
       <div class="tiles tiles-hoy" id="hoy"></div>
+      <p class="actualizado" id="actualizado"></p>
+    </div>
+  </section>
+
+  <section id="mes-en-curso" class="seccion seccion-alt">
+    <div class="envoltura">
+      <h2>Pronósticos mes en curso</h2>
+      <p class="intro">Lo que estimamos para el período que está corriendo, antes de que se conozca el dato oficial.</p>
+      <div class="tiles tiles-hoy" id="mes-curso"></div>
+      <p class="aviso-modelos"><strong>Importante:</strong> estos datos son estimaciones a partir de modelos nuevos sin verificar; úselos bajo su propia responsabilidad.</p>
     </div>
   </section>
 
   <section id="pronosticos" class="seccion">
     <div class="envoltura">
-      <h2>Pronósticos de hoy</h2>
-      <p class="intro" id="pron-intro">Nuestro pronóstico para el próximo informe del REM, junto a la mediana del último REM publicado para el mismo período.</p>
+      <h2>Pronósticos próximos 12 meses</h2>
+      <div class="texto-rem">
+        <h3>¿Qué es el REM?</h3>
+        <p>REM es la sigla de <strong>Relevamiento de Expectativas de Mercado</strong>. Todos los meses, el Banco Central (BCRA) les pide a unas 45 consultoras, bancos y centros de investigación del país y del exterior que estimen las principales variables de la economía argentina (inflación, dólar, actividad, tasas, resultado fiscal y comercio exterior) en los próximos 1 a 12 meses y a dos años. Cada mes los participantes actualizan sus pronósticos, y el BCRA publica la mediana de todas las respuestas como dato de referencia. Además mide quiénes acertaron más y arma con ellos un "Top 10".</p>
+        <h3>¿Qué nos interesa del REM?</h3>
+        <p>Como reúne a las instituciones más especializadas del país, el REM es la mejor referencia pública de lo que se espera para la economía. Si <strong>Datos Con Método</strong> logra acercarse al REM y quedar en una posición similar a las mejores consultoras e instituciones, podremos decir con confianza que nuestros modelos son útiles, especialmente si nuestros pronósticos se acercan al dato real de inflación, PIB y las demás variables ya mencionadas.</p>
+        <h3>Fuentes de información</h3>
+        <p>Para calcular nuestros pronósticos usamos casi exclusivamente información pública: el 96% de las series vienen de organismos públicos (INDEC, BCRA, Ministerio de Economía, Banco Mundial e institutos provinciales de estadística); el 3%, de fuentes privadas que publican sus datos abiertamente (el mercado de futuros A3, la Universidad Torcuato Di Tella, el Mercado Agroganadero de Cañuelas y ArgentinaDatos), y el 1% restante son índices que elaboramos nosotros a partir de datos públicos, como el de precios de supermercados. Así, cualquier persona puede acceder a los mismos datos que usamos: los compartimos en la sección <a href="#datos">Datos</a>.</p>
+        <p>Abajo mostramos cuántas series y datos mantenemos en nuestra base, cuántas fuentes están al día y el estado de los datos necesarios para calcular nuestros pronósticos.</p>
+      </div>
+      <div class="tiles tiles-sitio" id="tiles" aria-live="polite"></div>
+      <h3 class="pron-tit">Pronóstico próximo REM por Datos Con Método</h3>
+      <p class="intro" id="pron-intro">Estimaciones de Datos Con Método para el próximo REM vs. lo estimado para el mismo período en el REM del mes anterior.</p>
       <div class="tarjetas" id="tarjetas"></div>
+      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+    </div>
+  </section>
+
+  <section id="ultimo-rem" class="seccion seccion-alt">
+    <div class="envoltura">
+      <h2>Último REM publicado vs. estimaciones de Datos Con Método</h2>
+      <p class="intro" id="ur-titular">Cuando el BCRA publica un REM nuevo, lo comparamos con lo que habíamos estimado nosotros para el mismo informe.</p>
+      <p class="nota" id="ur-nota"></p>
+      <div class="historias" id="ur-filas"></div>
+      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja del medio (80% de las consultoras) <span class="lr-linea"></span>del pronóstico más bajo al más alto
+        <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM* <span class="lr-real"></span>dato real</p>
+      <p class="nota">Detalle de todos los horizontes y variables en la tabla "Comparación de pronósticos": <a href="descargas/comparacion_pronosticos.xlsx" download>descargar en Excel</a> (también en <a href="descargas/comparacion_pronosticos.zip" download>CSV comprimido</a>).</p>
+    </div>
+  </section>
+
+  <section id="resultados" class="seccion">
+    <div class="envoltura">
+      <h2>Datos reales vs. Datos Con Método vs. REM (mes anterior)</h2>
+      <p class="intro" id="re-titular">Cada vez que sale un dato oficial, vemos quién estuvo más cerca: nosotros o la mediana de las consultoras.</p>
+      <div class="historias" id="re-filas"></div>
+      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+      <p class="nota">Se compara el último pronóstico hecho antes de que se conociera el dato. Los resultados de los últimos meses, en la sección siguiente.</p>
     </div>
   </section>
 
   <section id="historial" class="seccion seccion-alt">
     <div class="envoltura">
-      <h2>Cómo nos fue</h2>
-      <p class="intro">Error promedio contra el dato real: el nuestro y el del REM, sobre los mismos meses. "Más cerca" es el porcentaje de veces que nuestro pronóstico quedó más cerca del dato que el REM. Antes de octubre de 2026 son <strong>reconstrucciones en tiempo real</strong>: cada pronóstico se armó solo con datos publicados hasta esa fecha, pero no se publicó entonces.</p>
+      <h2>Datos reales vs. Datos Con Método vs. REM últimos meses completos según variable</h2>
+      <p class="intro">Como vimos, cada mes el REM estima entre 12 y 13 períodos según la variable, así que un mismo mes (por ejemplo, enero) recibe varias estimaciones: la que se hizo seis meses antes, la de cinco meses antes y así hasta el mes mismo. Las estimaciones de <strong>Datos Con Método</strong> se comportan de la misma forma. Para compararlos, agrupamos las estimaciones según cuánto antes se hicieron (el horizonte) y calculamos el error promedio de cada uno contra el dato real. En los siguientes gráficos vamos a ver el error del REM y el de Datos Con Método, y el porcentaje de veces que la estimación de Datos Con Método estuvo más cerca del dato real que la del REM, en 2025-2026.</p>
       <div class="leyenda-global" aria-hidden="true">
         <span><i class="ley ley-real"></i>Dato real</span>
         <span><i class="ley ley-rem"></i>REM (mediana)</span>
-        <span><i class="ley ley-nuestro"></i>Nuestro</span>
+        <span><i class="ley ley-nuestro"></i>DCM*</span>
       </div>
       <div id="bloques"></div>
+      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+      <p class="aviso-historia">Como <strong>Datos Con Método</strong> recién empezó a armar sus modelos el 10 de octubre de 2026, lógicamente no tiene historia para compararse con los datos reales con 100% de transparencia al público. Tendremos que contar con su confianza al decirles que todo dato "estimado" antes del 10 de octubre de 2026 que ya tuviera un dato real publicado fue modelado sin tener en cuenta esos datos, simulando estar en el período previo a la estimación.</p>
     </div>
   </section>
 
