@@ -1,4 +1,4 @@
-﻿# guardar_historicas.py
+# guardar_historicas.py
 # Guarda con TODA su historia las series que se usaron o revisaron en el proyecto y que no tienen actualizador propio
 # (BCRA API v4.0, datos.gob.ar y archivos del INDEC). Nunca borra: si una fuente falla o trae menos datos que antes,
 # se conservan los guardados y se avisa.
@@ -100,6 +100,27 @@ DATOS_GOB = [
     "453.1_SERIE_ORIGNAL_0_0_14_46", "453.1_SERIE_TENDCLO_0_0_21_61",
     "41.3_DC_0_A_21",
 ]   # (recaudación total 172.3 y gasoil 363.3 ya estaban más arriba: repetirlas duplicaba los datos; quitadas el 18-oct-2026)
+# dataset completo "Indicadores de producción de la Industria manufacturera" (41.3, Subsecretaría de Programación
+# Macroeconómica): las 95 series (petróleo, faena, lácteos, papel, química, combustibles, construcción, siderurgia,
+# automotores, electrodomésticos). Agregado el 23-oct-2026 (regla "guardar todo lo revisado").
+DATOS_GOB += [
+    "41.3_PC_0_A_14", "41.3_PP_0_A_18", "41.3_GN_0_A_11", "41.3_H_0_A_10", "41.3_AV_0_A_17", "41.3_SO_0_A_24",
+    "41.3_FCV_0_A_18", "41.3_FA_0_A_10", "41.3_FP_0_A_14", "41.3_FO_0_A_12", "41.3_LIP_0_A_27", "41.3_M_0_A_7",
+    "41.3_Y_0_A_5", "41.3_Q_0_A_6", "41.3_C_0_A_5", "41.3_DL_0_A_11", "41.3_PLF_0_A_22", "41.3_BE_0_A_20",
+    "41.3_DAVMI_0_A_42", "41.3_ME_0_A_15", "41.3_DG_0_A_18", "41.3_DC_0_A_21", "41.3_PPI_0_A_26", "41.3_PP_0_A_17",
+    "41.3_PPSOU_0_A_33", "41.3_JTL_0_A_21", "41.3_DLIL_0_A_42", "41.3_OA_0_A_15", "41.3_U_0_A_4", "41.3_P_0_A_3",
+    "41.3_E_0_A_7", "41.3_P_0_A_11", "41.3_SB_0_A_11", "41.3_I_0_A_11", "41.3_O_0_A_7", "41.3_N_0_A_9",
+    "41.3_NT_0_A_12", "41.3_NC_0_A_11", "41.3_NS_0_A_11", "41.3_NU_0_A_11", "41.3_GO_0_A_7", "41.3_FO_0_A_8",
+    "41.3_K_0_A_8", "41.3_A_0_A_12", "41.3_L_0_A_11", "41.3_P_0_A_7", "41.3_B_0_A_6", "41.3_GR_0_A_13",
+    "41.3_COQ_0_A_5", "41.3_G_0_A_6", "41.3_A_0_A_7", "41.3_SA_0_A_20", "41.3_SOLA_0_A_20", "41.3_SH_0_A_16",
+    "41.3_A_0_A_8", "41.3_OPL_0_A_24", "41.3_OPM_0_A_24", "41.3_OPP_0_A_23", "41.3_CS_0_A_16", "41.3_NH_0_A_10",
+    "41.3_PP_0_A_24", "41.3_PPU_0_A_22", "41.3_CPR_0_A_30", "41.3_ASC_0_A_29", "41.3_CP_0_A_16", "41.3_LCH_0_A_26",
+    "41.3_PY_0_A_11", "41.3_HP_0_A_15", "41.3_AC_0_A_11", "41.3_LEF_0_A_14", "41.3_LECNP_0_A_28", "41.3_P_0_A_6",
+    "41.3_AP_0_A_17", "41.3_AA_0_A_23", "41.3_U_0_A_11", "41.3_CP_0_A_15", "41.3_T_0_A_9", "41.3_LS_0_A_21",
+    "41.3_CT_0_A_22", "41.3_CE_0_A_20", "41.3_AA_0_A_21", "41.3_CGF_0_A_20", "41.3_HA_0_A_13", "41.3_HM_0_A_17",
+    "41.3_HF_0_A_18", "41.3_T_0_A_11", "41.3_RV_0_A_19", "41.3_EA_0_A_13", "41.3_A_0_A_11", "41.3_CF_0_A_20",
+    "41.3_AAP_0_A_29", "41.3_TC_0_A_19", "41.3_MLP_0_A_19", "41.3_NNTP_0_A_28", "41.3_DC_0_A_16",
+]
 DATOS_GOB = list(dict.fromkeys(DATOS_GOB))   # por las dudas: una serie repetida en la lista no se baja dos veces
 # otras fuentes oficiales en archivo (agregadas el 14-oct-2026)
 URL_ITCRM = "https://www.bcra.gob.ar/Pdfs/PublicacionesEstadisticas/ITCRMSerie.xlsx"
@@ -184,7 +205,7 @@ def series_datos_gob():
             if fin_api and fin_api > fin_csv:   # el CSV de descarga se quedó atrás de la API (pasó con las categorías del IPC)
                 yield f"datosgob_{sid}", None, {"error": f"CSV_DESACTUALIZADO: el CSV llega a {fin_csv} y la API a {fin_api}"}
                 continue
-            info = {"fuente": "datos.gob.ar (" + str(meta[1]["dataset"].get("source", ""))[:60] + ")",
+            info = {"fuente": "datos.gob.ar (" + str(meta[1]["dataset"].get("source", "")).strip() + ")",   # nombre completo (antes se cortaba a 60)
                     "nombre": str(meta[1]["field"].get("description", col)), "frecuencia": meta[0]["frequency"],
                     "unidad": meta[1]["field"].get("units"), "url": url}
             yield f"datosgob_{sid}", df, info

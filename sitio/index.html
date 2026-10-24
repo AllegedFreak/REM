@@ -36,8 +36,8 @@
     <nav class="nav" aria-label="Secciones">
       <a href="#pronosticos">Pronósticos</a>
       <a href="#historial">Cómo nos fue</a>
-      <a href="#fuentes">Fuentes</a>
-      <a href="#descargas">Descargas</a>
+      <a href="#sellos">Verificación</a>
+      <a href="#datos">Datos</a>
       <a href="#metodo">Método</a>
     </nav>
     <button class="tema" id="tema" type="button" aria-label="Cambiar entre modo claro y oscuro">
@@ -51,9 +51,12 @@
     <div class="envoltura">
       <p class="sobretitulo">Datos abiertos · método a la vista</p>
       <h1>Pronósticos de la economía argentina hechos con datos públicos.</h1>
-      <p class="bajada">Cada mes registramos nuestro pronóstico <strong>antes</strong> de que el BCRA publique el REM, y después lo comparamos con el REM y con lo que pasó. Mostramos dónde acertamos y dónde no. Todas las series que usamos se pueden descargar.</p>
+      <p class="bajada">Cada mes registramos nuestro pronóstico de expectativas macroeconómicas <strong>antes</strong> de que el BCRA publique el REM<a class="ast" href="#nota-rem" aria-describedby="nota-rem">*</a>, y después lo comparamos con el mismo y, finalmente, con lo que realmente pasó. Mostramos dónde acertamos y dónde no. Toda la información utilizada para los cálculos está disponible al público en la sección <a href="#datos">Datos</a>.</p>
+      <p class="nota-rem" id="nota-rem">* REM: Relevamiento de Expectativas de Mercado. Todos los meses el Banco Central les pregunta a unas 40 consultoras, bancos y centros de estudio qué esperan para la inflación, el dólar, la actividad, las tasas y otras variables en los próximos meses. Es la referencia más confiable en Argentina sobre lo que se espera de la economía.</p>
       <div class="tiles" id="tiles" aria-live="polite"></div>
       <p class="actualizado" id="actualizado"></p>
+      <h2 class="hoy-tit">Los datos de hoy</h2>
+      <div class="tiles tiles-hoy" id="hoy"></div>
     </div>
   </section>
 
@@ -78,54 +81,51 @@
     </div>
   </section>
 
-  <section id="fuentes" class="seccion">
+  <section id="sellos" class="seccion">
     <div class="envoltura">
-      <h2>Fuentes</h2>
-      <p class="intro">De dónde sale cada dato, cuándo fue el último y cuándo lo bajamos. El punto indica si la fuente está al día según su frecuencia de publicación.</p>
-      <div class="filtros" role="group" aria-label="Filtrar fuentes">
-        <button type="button" class="chip activo" data-f="todas">Todas</button>
-        <button type="button" class="chip" data-f="verde">Al día</button>
-        <button type="button" class="chip" data-f="atrasadas">Atrasadas</button>
-        <button type="button" class="chip" data-f="sin">Sin descarga</button>
-      </div>
-      <div class="tabla-scroll">
-        <table class="tabla tabla-fuentes">
-          <thead><tr><th>Estado</th><th>Fuente</th><th class="num">Último dato</th><th class="num">Actualizado</th><th>Frecuencia</th><th>Descarga</th></tr></thead>
-          <tbody id="tabla-fuentes"></tbody>
-        </table>
-      </div>
+      <h2>Verificación de que las predicciones no fueron modificadas</h2>
+      <p class="intro">Una vez por mes, antes de que el BCRA publique el REM, congelamos nuestro pronóstico en un PDF y dejamos tres pruebas de fecha que no controlamos: lo publicamos en LinkedIn con su huella digital (SHA-256), lo sellamos en la cadena de Bitcoin con <a href="https://opentimestamps.org" rel="noopener">OpenTimestamps</a> y lo guardamos en el <a href="https://web.archive.org" rel="noopener">Archivo de Internet</a>. Si cambiáramos una sola letra del PDF, la huella sería otra. Después volvemos a compartir esa publicación cuando sale el REM y cuando sale el dato real.</p>
+      <div id="lista-sellos"></div>
+      <details class="cond verificar"><summary>Cómo verificar un pronóstico sellado</summary>
+        <ol>
+          <li>Bajá el PDF del pronóstico.</li>
+          <li>Calculá su huella SHA-256. En Windows, abrí PowerShell en la carpeta y escribí <code>Get-FileHash archivo.pdf</code> (o <code>certutil -hashfile archivo.pdf SHA256</code>); en Mac o Linux, <code>shasum -a 256 archivo.pdf</code>.</li>
+          <li>Comparala con la huella publicada en LinkedIn: tienen que ser idénticas.</li>
+          <li>Para el sello de Bitcoin: entrá a <a href="https://opentimestamps.org" rel="noopener">opentimestamps.org</a>, arrastrá el PDF y su archivo <code>.ots</code>, y fijate la fecha del bloque.</li>
+        </ol>
+      </details>
     </div>
   </section>
 
-  <section id="descargas" class="seccion seccion-alt">
+  <section id="datos" class="seccion">
     <div class="envoltura">
-      <h2>Descargas</h2>
-      <p class="intro">Elegí una o varias series y el período. Se arma un Excel con una hoja de datos (una columna por serie) y otra con la fuente y la cita de cada una.</p>
-      <div class="descarga">
-        <div class="descarga-filtros">
-          <label class="campo campo-busca"><span>Buscar</span><input id="busca" type="search" placeholder="Ej.: IPC, base monetaria, soja, reservas" autocomplete="off"></label>
-          <label class="campo"><span>Fuente</span><select id="f-fuente"><option value="">Todas</option></select></label>
-          <label class="campo"><span>Frecuencia</span><select id="f-frec"><option value="">Todas</option><option value="D">Diaria</option><option value="M">Mensual</option><option value="T">Trimestral</option><option value="A">Anual</option></select></label>
-        </div>
-        <p class="conteo" id="conteo" aria-live="polite"></p>
-        <ul class="lista-series" id="lista-series"></ul>
-        <button type="button" class="boton-sec" id="mas" hidden>Mostrar más</button>
-        <div class="armado" id="armado">
-          <div class="armado-sel"><strong id="n-sel">0</strong> series elegidas <button type="button" class="link" id="limpiar">limpiar</button></div>
-          <label class="campo"><span>Desde</span><input type="date" id="desde"></label>
-          <label class="campo"><span>Hasta</span><input type="date" id="hasta"></label>
-          <button type="button" class="boton" id="bajar" disabled>Descargar .xlsx</button>
-          <p class="aviso" id="aviso" aria-live="polite"></p>
-        </div>
+      <h2>Datos</h2>
+      <p class="intro">Todas las series que usamos, agrupadas por fuente. Cada serie se baja sola (ZIP con CSV, o Excel) o junto con otras (marcalas y elegí el período abajo). Cada fuente muestra si está al día, cuándo fue su último dato y cuándo lo bajamos. Si producís alguno de estos datos y querés que retiremos una serie, escribinos por <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a>.</p>
+      <div class="buscador">
+        <label class="campo campo-busca"><span>Buscar series</span><input id="busca" type="search" placeholder="Ej.: IPC, base monetaria, soja, reservas, cemento" autocomplete="off"></label>
+        <label class="campo"><span>Fuente</span><select id="f-fuente"><option value="">Todas</option></select></label>
+        <label class="campo"><span>Frecuencia</span><select id="f-frec"><option value="">Todas</option><option value="D">Diaria</option><option value="M">Mensual</option><option value="T">Trimestral</option><option value="A">Anual</option></select></label>
+        <label class="campo"><span>Estado</span><select id="f-estado"><option value="">Todos</option><option value="verde">Al día</option><option value="atrasadas">Atrasadas</option><option value="gris">Históricas</option></select></label>
       </div>
-      <h3>Tablas completas</h3>
-      <ul class="lista-tablas" id="tablas"></ul>
+      <p class="conteo" id="conteo" aria-live="polite"></p>
+      <div id="lista-fuentes"></div>
     </div>
   </section>
+
+  <div class="armado" id="armado" hidden>
+    <div class="envoltura armado-in">
+      <div class="armado-sel"><strong id="n-sel">0</strong> series elegidas · <button type="button" class="link" id="limpiar">limpiar</button></div>
+      <label class="campo"><span>Desde</span><input type="date" id="desde"></label>
+      <label class="campo"><span>Hasta</span><input type="date" id="hasta"></label>
+      <button type="button" class="boton" id="bajar-xlsx">Excel</button>
+      <button type="button" class="boton boton-sec2" id="bajar-zip">ZIP (CSV)</button>
+      <p class="aviso" id="aviso" aria-live="polite"></p>
+    </div>
+  </div>
 
   <section id="metodo" class="seccion">
     <div class="envoltura metodo">
-      <h2>Método</h2>
+      <h2>Método Resumido</h2>
       <div class="principios">
         <div><h3>Solo datos públicos</h3><p>Usamos series de organismos oficiales (INDEC, BCRA, Ministerio de Economía, institutos provinciales) siempre que existan. Fuentes de terceros, solo para lo que no publica ningún organismo, y siempre citadas.</p></div>
         <div><h3>Registro antes del REM</h3><p>El pronóstico de cada mes queda guardado con fecha y hora antes de que salga el REM. Ese registro no se borra: es la prueba hacia adelante, y se puede descargar.</p></div>
@@ -154,6 +154,7 @@
 
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js" defer></script>
+<script src="vendor/jszip.min.js" defer></script>
 <script src="app.js"></script>
 </body>
 </html>

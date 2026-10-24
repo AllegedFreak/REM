@@ -21,7 +21,7 @@ except Exception:
 BASE = Path(__file__).resolve().parent
 ONEDRIVE = Path(os.environ.get("OneDrive", r"C:\Users\marco\OneDrive")) / "Respaldo_REM"
 DISCO_RESPALDO = Path("F:/Respaldo_REM")   # disco de 1 TB (etiqueta "1TB")
-EXCLUIR_DIR = ["tmp", "tmp_preciazo", "tmp_debug", "__pycache__", ".git"]
+EXCLUIR_DIR = ["tmp", "tmp_preciazo", "tmp_debug", "__pycache__", ".git", "web"]   # web: el sitio se regenera con publicar_web.py
 EXCLUIR_ARCH = ["*.duckdb", "*.duckdb.wal", "*.tmp"]   # la base DuckDB se rearma sola desde los parquet
 
 LIVIANO = [(BASE, "rem"), (Path("E:/SEPA/crudos"), "SEPA/crudos"), (Path("E:/SEPA/resumen"), "SEPA/resumen"),
