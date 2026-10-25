@@ -33,7 +33,9 @@
       </svg>
       <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
     </a>
+    <span class="marca-por">Por <a href="https://www.marcoscavanagh.com" rel="noopener">Marcos Cavanagh</a></span>
     <nav class="nav" aria-label="Secciones">
+      <a class="nav-sobre" href="sobre-marcos.html">Sobre mí</a>
       <a href="#datos-hoy">Hoy</a>
       <div class="nav-grupo" id="grupo-pron">
         <button type="button" class="nav-btn" id="btn-pron" aria-expanded="false" aria-controls="menu-pron">Pronósticos
@@ -50,6 +52,9 @@
       <a href="#datos">Datos</a>
       <a href="#metodo">Método</a>
     </nav>
+    <a class="wsp" href="https://wa.me/5491160218162?text=Hola%20Marcos%2C%20te%20escribo%20desde%20Datos%20Con%20M%C3%A9todo" aria-label="Escribinos por WhatsApp" title="Escribinos por WhatsApp">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
+    </a>
     <button class="tema" id="tema" type="button" aria-label="Cambiar entre modo claro y oscuro">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg>
     </button>
@@ -136,17 +141,9 @@
 
   <section id="sellos" class="seccion">
     <div class="envoltura">
-      <h2>Verificación de que las predicciones no fueron modificadas</h2>
-      <p class="intro">Una vez por mes, antes de que el BCRA publique el REM, congelamos nuestro pronóstico en un PDF y dejamos tres pruebas de fecha que no controlamos: lo publicamos en LinkedIn con su huella digital (SHA-256), lo sellamos en la cadena de Bitcoin con <a href="https://opentimestamps.org" rel="noopener">OpenTimestamps</a> y lo guardamos en el <a href="https://web.archive.org" rel="noopener">Archivo de Internet</a>. Si cambiáramos una sola letra del PDF, la huella sería otra. Después volvemos a compartir esa publicación cuando sale el REM y cuando sale el dato real.</p>
+      <h2>Transparencia: verificación de que las predicciones no fueron modificadas post publicación</h2>
+      <p class="intro">Una vez por mes, antes de que el BCRA publique el REM, congelamos nuestro pronóstico en un PDF y lo sellamos en la cadena de Bitcoin con <a href="https://opentimestamps.org" rel="noopener">OpenTimestamps</a>. Abajo dejamos los dos archivos necesarios para verificar la fecha de subida.</p>
       <div id="lista-sellos"></div>
-      <details class="cond verificar"><summary>Cómo verificar un pronóstico sellado</summary>
-        <ol>
-          <li>Bajá el PDF del pronóstico.</li>
-          <li>Calculá su huella SHA-256. En Windows, abrí PowerShell en la carpeta y escribí <code>Get-FileHash archivo.pdf</code> (o <code>certutil -hashfile archivo.pdf SHA256</code>); en Mac o Linux, <code>shasum -a 256 archivo.pdf</code>.</li>
-          <li>Comparala con la huella publicada en LinkedIn: tienen que ser idénticas.</li>
-          <li>Para el sello de Bitcoin: entrá a <a href="https://opentimestamps.org" rel="noopener">opentimestamps.org</a>, arrastrá el PDF y su archivo <code>.ots</code>, y fijate la fecha del bloque.</li>
-        </ol>
-      </details>
     </div>
   </section>
 
@@ -284,10 +281,10 @@
         </svg>
         <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
       </a>
-      <p><strong>Marcos Cavanagh</strong> · <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a></p>
+      <p><strong>Marcos Cavanagh</strong> · <a href="https://www.linkedin.com/in/marcoscav" rel="noopener">LinkedIn</a><br><a href="https://www.marcoscavanagh.com" rel="noopener">www.marcoscavanagh.com</a></p>
     </div>
     <div class="pie-txt">
-      <p>Nuestros datos propios (pronósticos, índice de supermercados y serie de precios encadenada) se publican bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="license noopener">CC BY 4.0</a>: podés usarlos libremente citando a Datos Con Método: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;</em>. Las series de otras fuentes conservan la licencia de su productor: citá la fuente original.</p>
+      <p>Nuestros datos propios (pronósticos, índice de supermercados y serie de precios encadenada) se publican bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="license noopener">CC BY 4.0</a>: podés usarlos libremente citando a Datos Con Método: <em>Datos Con Método (www.datosconmetodo.com), Marcos Cavanagh, consultado el &lt;fecha&gt;</em>. Las series de otras fuentes conservan la licencia de su productor: citá la fuente original. <a href="catalogo/">Catálogo de datos</a></p>
       <p id="pie-act"></p>
     </div>
   </div>

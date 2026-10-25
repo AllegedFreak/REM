@@ -11,6 +11,7 @@
 # Futuros del CEM, MAG y Mercado Central se publican con su aclaración (decisión de Marcos, 23-oct-2026).
 # Uso: py -3.13 publicar_web.py [--aviso]
 import json
+import os
 import math
 import shutil
 import sys
@@ -1263,7 +1264,7 @@ def completar_index(resumen):
     s = s.replace("<head>", '<head>\n<script>document.documentElement.classList.add("js")</script>', 1)
     # versión en el nombre de app.js y estilo.css: Cloudflare y los navegadores guardan copias (hasta 4 h) y, sin esto,
     # un cambio de diseño o de textos tarda horas en verse. Cada corrida pide los archivos nuevos.
-    ver = datetime.now().strftime("%Y%m%d%H%M")
+    ver = VER_ESTILO
     s = s.replace('<script src="app.js"></script>', f'<script src="app.js?v={ver}"></script>', 1)
     s = s.replace('<link rel="stylesheet" href="estilo.css">', f'<link rel="stylesheet" href="estilo.css?v={ver}">', 1)
     s = re.sub(r'<meta name="description" content="[^"]*">', lambda m: f'<meta name="description" content="{_esc(desc)}">', s, count=1)
@@ -1614,6 +1615,225 @@ def mes_en_curso(tarjetas):
     return out
 
 
+# ---------------------------------------------------------------- 5i) catálogo en páginas comunes + sitemap completo (pedido de Marcos, 24-oct-2026)
+# La sección Datos se dibuja con JavaScript; para que los buscadores vean todo lo que hay, se escribe además un catálogo en
+# HTML simple: catalogo/index.html (todas las fuentes) y una página por fuente con todas sus series y tablas, cada una con
+# datos estructurados schema.org "Dataset". El sitemap.xml lista la portada, "Sobre Marcos", el catálogo y cada fuente.
+SITIO_URL = "https://www.datosconmetodo.com"
+VER_ESTILO = datetime.now().strftime("%Y%m%d%H%M")      # versión de estilo.css en todas las páginas (esquiva copias viejas de Cloudflare)
+FREC_TXT = {"D": "Diaria", "M": "Mensual", "T": "Trimestral", "A": "Anual"}
+
+
+def _slug(x):
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(x)).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:80] or "fuente"
+
+
+def _pagina(titulo, desc, canonical, cuerpo, ld=None):
+    ld_txt = f'<script type="application/ld+json">{json.dumps(ld, ensure_ascii=False)}</script>\n' if ld else ""
+    return f"""<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_esc(titulo)}</title>
+<meta name="description" content="{_esc(desc)}">
+<meta name="author" content="Marcos Cavanagh">
+<link rel="icon" href="../logo.svg" type="image/svg+xml">
+<link rel="canonical" href="{canonical}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../estilo.css?v={VER_ESTILO}">
+<script>try {{ var t = localStorage.getItem("dcm-tema"); if (t) document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
+{ld_txt}</head>
+<body>
+<header class="barra">
+  <div class="envoltura barra-in">
+    <a class="marca" href="../" aria-label="Datos Con Método, volver al inicio">
+      <svg class="marca-logo" viewBox="0 0 32 32" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="6" fill="none" stroke="currentColor" stroke-width="2"/><rect x="8" y="17" width="3.5" height="7" rx="1" fill="currentColor"/><rect x="14.25" y="12" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="20.5" y="15" width="3.5" height="9" rx="1" fill="currentColor"/><circle cx="22.25" cy="8.5" r="2.25" class="marca-punto"/></svg>
+      <span class="marca-txt">Datos <span class="marca-con">Con</span> <span class="marca-metodo">Método</span></span>
+    </a>
+    <span class="marca-por">Por <a href="https://www.marcoscavanagh.com" rel="noopener">Marcos Cavanagh</a></span>
+    <nav class="nav" aria-label="Secciones"><a href="./">Catálogo</a><a href="../#datos">Descargar series</a><a href="../">Inicio</a></nav>
+  </div>
+</header>
+<main id="contenido"><section class="seccion"><div class="envoltura catalogo">
+{cuerpo}
+</div></section></main>
+</body>
+</html>
+"""
+
+
+def _svg_serie(d, v):
+    """Gráfico de línea estático (SVG) de toda la historia de la serie; sin JavaScript."""
+    pares = [(a, b) for a, b in zip(d, v) if b is not None and not (isinstance(b, float) and math.isnan(b))]
+    if len(pares) < 2:
+        return ""
+    paso = max(1, len(pares) // 600)                       # hasta ~600 puntos: liviano y suficiente para ver la forma
+    pts = pares[::paso] + ([pares[-1]] if (len(pares) - 1) % paso else [])
+    lo, hi = min(b for _, b in pts), max(b for _, b in pts)
+    if hi == lo:
+        hi, lo = hi + 1, lo - 1
+    W, H, m = 800, 220, 8
+    xy = " ".join(f"{m + (W - 2 * m) * i / (len(pts) - 1):.1f},{H - m - (H - 2 * m) * (b - lo) / (hi - lo):.1f}" for i, (_, b) in enumerate(pts))
+    return (f'<svg class="serie-svg" viewBox="0 0 {W} {H}" role="img" aria-label="Gráfico de la serie de {pts[0][0]} a {pts[-1][0]}">'
+            f'<polyline fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" points="{xy}"/></svg>'
+            f'<p class="serie-ejes"><span>{pts[0][0]}</span><span>mín. {_num(lo, 2)} · máx. {_num(hi, 2)}</span><span>{pts[-1][0]}</span></p>')
+
+
+def _fmt_v(x):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "—"
+    return _num(x, 2 if abs(x) < 100000 else 0)
+
+
+def series_paginas(fu, cat, raiz, slugs):
+    """Una página HTML por serie (serie/<código>.html) + su CSV. Devuelve las direcciones para el sitemap."""
+    destino = raiz / "serie"
+    destino.mkdir(parents=True, exist_ok=True)
+    finfo = {f["id"]: f for f in fu}
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    urls = []
+    for s in cat:
+        sid = s["id"]
+        arch = raiz / "data" / "s" / f"{sid}.json"
+        if not arch.exists():
+            continue
+        dat = json.loads(arch.read_text(encoding="utf-8"))
+        d, v = dat.get("d", []), dat.get("v", [])
+        f = finfo.get(s.get("fuente_id"), {})
+        nom_f = f.get("nombre") or s.get("fuente") or ""
+        inst = f.get("institucion") or nom_f
+        # CSV de la serie
+        lineas = ["fecha,valor"] + [f"{a},{'' if b is None else b}" for a, b in zip(d, v)]
+        (destino / f"{sid}.csv").write_text("﻿" + "\n".join(lineas) + "\n", encoding="utf-8")
+        ult = next(((a, b) for a, b in zip(reversed(d), reversed(v)) if b is not None), (None, None))
+        url = f"{SITIO_URL}/serie/{sid}.html"
+        frec = FREC_TXT.get(s.get("frecuencia"), s.get("frecuencia") or "")
+        filas = "".join(f"<tr><td>{a}</td><td class=\"num\">{_fmt_v(b)}</td></tr>" for a, b in list(zip(d, v))[-12:][::-1])
+        cuerpo = [f'<p class="serie-miga"><a href="../catalogo/">Catálogo</a> › <a href="../catalogo/{slugs.get(s.get("fuente_id"), "")}.html">{_esc(nom_f)}</a></p>',
+                  f'<h1 class="cat-tit">{_esc(s["nombre"])}</h1>',
+                  '<p class="intro">' + " · ".join(_esc(x) for x in [inst, s.get("unidad"), frec, f'de {s.get("desde")} a {s.get("hasta")}',
+                                                                f'{_num(s.get("n") or len(d), 0)} datos', s.get("estado_txt")] if x) + "</p>"]
+        if ult[0]:
+            cuerpo.append(f'<p class="serie-ult">Último dato: <strong>{_fmt_v(ult[1])}</strong> <span class="serie-meta">({ult[0]})</span></p>')
+        cuerpo.append(_svg_serie(d, v))
+        cuerpo.append('<p class="formatos"><a class="fmt" href="' + f"{sid}.csv" + '" download>Descargar CSV</a> '
+                      f'<a class="fmt" href="../?q={_esc(sid)}#datos">ZIP o Excel, con otras series</a></p>')
+        cuerpo.append(f'<h2>Últimos datos</h2><div class="tabla-scroll"><table class="tabla"><thead><tr><th>Fecha</th><th class="num">Valor</th></tr></thead><tbody>{filas}</tbody></table></div>')
+        cuerpo.append(f'<h2>Cómo citar</h2><p>{_esc(s.get("cita") or "")}</p>')
+        if s.get("url"):
+            cuerpo.append(f'<p><strong>Fuente original:</strong> <a href="{_esc(s["url"])}" rel="noopener">{_esc(s["url"])}</a></p>')
+        for clave, et in (("nota", "Aclaración"), ("condiciones", "Condiciones de uso"), ("licencia", "Licencia")):
+            if f.get(clave):
+                cuerpo.append(f"<p><strong>{et}:</strong> {_esc(f[clave])}</p>")
+        cuerpo.append(f'<p class="nota">Código de la serie: {_esc(sid)}. Datos Con Método la descarga y la guarda con su historia completa; '
+                      "las series de otras fuentes conservan la licencia de su productor.</p>")
+        desc = (f"{s['nombre']} ({inst}): serie {frec.lower()} de {s.get('desde')} a {s.get('hasta')}"
+                + (f", {s['unidad']}" if s.get("unidad") else "") + ". Gráfico, últimos datos y descarga en CSV.")
+        ld = {"@context": "https://schema.org", "@type": "Dataset", "name": s["nombre"], "description": desc, "url": url,
+              "identifier": sid, "creator": {"@type": "Organization", "name": inst},
+              "includedInDataCatalog": {"@type": "DataCatalog", "name": "Datos Con Método", "url": f"{SITIO_URL}/catalogo/"},
+              "temporalCoverage": f"{s.get('desde')}/{s.get('hasta')}", "variableMeasured": s["nombre"],
+              "isAccessibleForFree": True, "inLanguage": "es", "dateModified": hoy,
+              "distribution": [{"@type": "DataDownload", "encodingFormat": "text/csv", "contentUrl": f"{SITIO_URL}/serie/{sid}.csv"}]}
+        if s.get("url"):
+            ld["sameAs"] = s["url"]
+        if str(s.get("fuente_id", "")).startswith("Datos Con Método") or s.get("fuente_id") == "DCM":
+            ld["license"] = "https://creativecommons.org/licenses/by/4.0/"
+        (destino / f"{sid}.html").write_text(_pagina(f"{s['nombre']} · {inst} · Datos Con Método", desc, url, "\n".join(cuerpo), ld), encoding="utf-8")
+        urls.append(url)
+    return urls
+
+
+def catalogo_paginas(fu, cat, destino):
+    """Escribe el catálogo HTML y el sitemap. Devuelve la cantidad de páginas de fuentes."""
+    destino.mkdir(parents=True, exist_ok=True)
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    por_fuente = {}
+    for s in cat:
+        por_fuente.setdefault(s.get("fuente_id"), []).append(s)
+    slugs, filas_idx = {}, []
+    for f in sorted(fu, key=lambda x: x["nombre"]):
+        sl = _slug(f["id"])
+        while sl in slugs.values():
+            sl += "-2"
+        slugs[f["id"]] = sl
+        series = sorted(por_fuente.get(f["id"], []), key=lambda s: s["nombre"])
+        url = f"{SITIO_URL}/catalogo/{sl}.html"
+        partes = [f"<h1 class=\"cat-tit\">{_esc(f['nombre'])}</h1>",
+                  f"<p class=\"intro\">{_esc(f.get('institucion') or '')}"
+                  + (f" · vía {_esc(f['via'])}" if f.get("via") else "")
+                  + f" · {len(series)} series" + (f" · {len(f.get('tablas') or [])} tablas" if f.get("tablas") else "")
+                  + f" · estado: {_esc(f.get('estado_txt') or '')}"
+                  + (f" · último dato: {_esc(f['ultimo_dato'])}" if f.get("ultimo_dato") else "") + "</p>"]
+        for clave, et in (("nota", "Aclaración"), ("condiciones", "Condiciones de uso"), ("licencia", "Licencia")):
+            if f.get(clave):
+                partes.append(f"<p><strong>{et}:</strong> {_esc(f[clave])}</p>")
+        if f.get("url"):
+            partes.append(f'<p><strong>Fuente original:</strong> <a href="{_esc(f["url"])}" rel="noopener">{_esc(f["url"])}</a></p>')
+        if f.get("tablas"):
+            partes.append("<h2>Tablas completas</h2><ul>")
+            for t in f["tablas"]:
+                arch = " · ".join(f'<a href="../descargas/{_esc(a["archivo"])}">{_esc(a["formato"])}</a>' for a in t.get("archivos", []))
+                partes.append(f"<li><strong>{_esc(t['titulo'])}</strong> ({_num(t.get('filas') or 0, 0)} filas): {_esc(t.get('desc') or '')} {arch}</li>")
+            partes.append("</ul>")
+        if series:
+            partes.append(f"<h2>Series ({len(series)})</h2>")
+            partes.append('<div class="tabla-scroll"><table class="tabla"><thead><tr><th>Serie</th><th>Unidad</th><th>Frecuencia</th>'
+                          "<th>Período</th><th class=\"num\">Datos</th></tr></thead><tbody>")
+            for s in series:
+                partes.append(f'<tr><td><a href="../serie/{_esc(s["id"])}.html">{_esc(s["nombre"])}</a><br><span class="serie-meta">código {_esc(s["id"])}</span></td>'
+                              f"<td>{_esc(s.get('unidad') or '')}</td><td>{FREC_TXT.get(s.get('frecuencia'), s.get('frecuencia') or '')}</td>"
+                              f"<td>{_esc(s.get('desde') or '')} a {_esc(s.get('hasta') or '')}</td><td class=\"num\">{_num(s.get('n') or 0, 0)}</td></tr>")
+            partes.append("</tbody></table></div>")
+            partes.append(f"<p class=\"nota\">Cómo citar: {_esc(f.get('cita') or '')}</p>")
+        partes.append('<p class="nota">Cada serie se descarga en ZIP o Excel desde la sección <a href="../#datos">Datos</a> del sitio. '
+                      'Datos propios de Datos Con Método bajo licencia CC BY 4.0; las series de otras fuentes conservan la licencia de su productor.</p>')
+        desc = (f"{f['nombre']}: {len(series)} series" + (f" y {len(f.get('tablas') or [])} tablas" if f.get("tablas") else "")
+                + " de la economía argentina para descargar, con su fuente y cómo citarlas. Datos Con Método.")
+        ld = {"@context": "https://schema.org", "@type": "Dataset", "name": f["nombre"], "description": desc, "url": url,
+              "creator": {"@type": "Organization", "name": f.get("institucion") or f["nombre"]},
+              "includedInDataCatalog": {"@type": "DataCatalog", "name": "Datos Con Método", "url": SITIO_URL + "/"},
+              "isAccessibleForFree": True, "inLanguage": "es", "dateModified": hoy,
+              "keywords": [s["nombre"] for s in series[:60]],
+              "variableMeasured": [s["nombre"] for s in series[:200]]}
+        if f.get("url"):
+            ld["sameAs"] = f["url"]
+        (destino / f"{sl}.html").write_text(_pagina(f"{f['nombre']} · Datos Con Método", desc, url, "\n".join(partes), ld), encoding="utf-8")
+        filas_idx.append(f'<tr><td><a href="{sl}.html">{_esc(f["nombre"])}</a><br><span class="serie-meta">{_esc(f.get("institucion") or "")}</span></td>'
+                         f'<td class="num">{len(series)}</td><td class="num">{len(f.get("tablas") or [])}</td><td>{_esc(f.get("estado_txt") or "")}</td></tr>')
+    n_series = len(cat)
+    cuerpo = ['<h1 class="cat-tit">Catálogo de datos</h1>',
+              f'<p class="intro">Las {_num(n_series, 0)} series y las tablas que usa Datos Con Método, agrupadas por fuente: INDEC, BCRA, '
+              'Ministerio de Economía, Banco Mundial, institutos provinciales y fuentes privadas que publican abiertamente. Cada fuente tiene '
+              'su página con todas sus series, su período, su unidad y cómo citarlas. Las series se descargan en ZIP o Excel desde la '
+              'sección <a href="../#datos">Datos</a>.</p>',
+              '<p>Además, en la <a href="../">portada</a>: los datos de hoy, nuestros pronósticos para los próximos 12 meses, la comparación '
+              'con el último REM del BCRA y con los datos reales, y gráficos del error de cada pronóstico en el tiempo.</p>',
+              '<div class="tabla-scroll"><table class="tabla"><thead><tr><th>Fuente</th><th class="num">Series</th><th class="num">Tablas</th>'
+              '<th>Estado</th></tr></thead><tbody>', *filas_idx, "</tbody></table></div>"]
+    ld = {"@context": "https://schema.org", "@type": "DataCatalog", "name": "Datos Con Método: catálogo de datos de la economía argentina",
+          "url": f"{SITIO_URL}/catalogo/", "inLanguage": "es", "creator": {"@type": "Person", "name": "Marcos Cavanagh"},
+          "dataset": [{"@type": "Dataset", "name": f["nombre"], "url": f"{SITIO_URL}/catalogo/{slugs[f['id']]}.html"} for f in fu]}
+    (destino / "index.html").write_text(_pagina("Catálogo de datos · Datos Con Método",
+                                                f"Catálogo de {n_series} series de la economía argentina (INDEC, BCRA, Ministerio de Economía y más), "
+                                                "con fuente, período y cómo citarlas.", f"{SITIO_URL}/catalogo/", "\n".join(cuerpo), ld), encoding="utf-8")
+    urls_series = series_paginas(fu, cat, destino.parent, slugs)
+    # sitemap completo
+    urls = [(f"{SITIO_URL}/", "daily", "1.0"), (f"{SITIO_URL}/catalogo/", "daily", "0.9"), (f"{SITIO_URL}/sobre-marcos.html", "monthly", "0.5")]
+    urls += [(f"{SITIO_URL}/catalogo/{slugs[f['id']]}.html", "daily", "0.7") for f in sorted(fu, key=lambda x: x["nombre"])]
+    urls += [(u, "weekly", "0.6") for u in urls_series]
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    xml += [f"  <url><loc>{u}</loc><lastmod>{hoy}</lastmod><changefreq>{c}</changefreq><priority>{p}</priority></url>" for u, c, p in urls]
+    xml.append("</urlset>")
+    (destino.parent / "sitemap.xml").write_text("\n".join(xml) + "\n", encoding="utf-8")
+    return len(fu), len(urls_series)
+
+
 # ---------------------------------------------------------------- 6) armar y publicar
 def main():
     t0 = time.time()
@@ -1646,27 +1866,40 @@ def main():
     L.append(f"Semáforo de datos: {sd['color'].upper()} ({sd['al_dia']} de {sd['total']} datos de los pronósticos al día, {sd['pct']}%)"
              + (f"; atrasados: {', '.join(sd['atrasados'])}" if sd["atrasados"] else ""))
     guardar_json(data / "resumen.json", resumen)
+    sm = NUEVO / "sobre-marcos.html"
+    if sm.exists():
+        sm.write_text(sm.read_text(encoding="utf-8").replace('href="estilo.css"', f'href="estilo.css?v={VER_ESTILO}"', 1), encoding="utf-8")
     if not completar_index(resumen):
         L.append("Aviso W03: no se pudo generar la imagen de vista previa (vista_previa.png); el sitio se publica sin ella.")
     guardar_json(data / "fuentes.json", fu)
     guardar_json(data / "catalogo.json", cat.drop(columns=["origen"], errors="ignore").to_dict("records"))
-    # publicar: reemplazo de la carpeta "actual" (si la VM la tiene abierta y no se puede renombrar, se copia encima)
-    viejo = WEB / "_viejo"
-    if viejo.exists():
-        shutil.rmtree(viejo, ignore_errors=True)
-    try:
-        if ACTUAL.exists():
-            ACTUAL.rename(viejo)
-        NUEVO.rename(ACTUAL)
-        shutil.rmtree(viejo, ignore_errors=True)
-    except OSError as e:
-        # informativo (W01): pasa cuando la VM o el explorador tienen abierta la carpeta; el sitio queda igual de completo
-        L.append(f"Nota W01: la carpeta estaba en uso ({type(e).__name__}); se copió encima y se borró lo que sobraba")
-        shutil.copytree(NUEVO, ACTUAL, dirs_exist_ok=True)
-        nuevos = {p.relative_to(NUEVO) for p in NUEVO.rglob("*") if p.is_file()}
-        for p in [p for p in ACTUAL.rglob("*") if p.is_file() and p.relative_to(ACTUAL) not in nuevos]:
-            p.unlink(missing_ok=True)                          # archivos que ya no corresponden (series que salieron)
-        shutil.rmtree(NUEVO, ignore_errors=True)
+    n_pag, n_ser = catalogo_paginas(fu, json.loads(json.dumps(limpio(cat.drop(columns=["origen"], errors="ignore").to_dict("records")))), NUEVO / "catalogo")
+    L.append(f"Catálogo HTML: {n_pag} páginas de fuentes + índice + {n_ser} páginas de series; sitemap.xml con {n_pag + n_ser + 3} direcciones")
+    # publicar sin cortes (24-oct-2026): antes se renombraba la carpeta entera y, durante ese instante, el sitio en línea
+    # respondía "Forbidden" o "no encontrado". Ahora cada archivo se copia con un nombre temporal y se reemplaza de una vez
+    # (os.replace), las páginas index.html van al final y recién después se borra lo que ya no corresponde.
+    ACTUAL.mkdir(parents=True, exist_ok=True)
+    archivos = sorted((q for q in NUEVO.rglob("*") if q.is_file()), key=lambda q: (q.name == "index.html", str(q)))
+    for q in archivos:
+        dest = ACTUAL / q.relative_to(NUEVO)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".tmp_pub")
+        shutil.copy2(q, tmp)
+        try:
+            os.replace(tmp, dest)
+        except OSError:                                     # archivo abierto por la VM: se copia encima directamente
+            shutil.copy2(q, dest)
+            tmp.unlink(missing_ok=True)
+    nuevos = {q.relative_to(NUEVO) for q in archivos}
+    for q in [q for q in ACTUAL.rglob("*") if q.is_file() and q.relative_to(ACTUAL) not in nuevos]:
+        q.unlink(missing_ok=True)                            # archivos que ya no corresponden (series que salieron, temporales)
+    for d in sorted((d for d in ACTUAL.rglob("*") if d.is_dir()), key=lambda d: -len(d.parts)):
+        try:
+            d.rmdir()                                        # solo carpetas vacías
+        except OSError:
+            pass
+    shutil.rmtree(NUEVO, ignore_errors=True)
+    shutil.rmtree(WEB / "_viejo", ignore_errors=True)
     peso = sum(p.stat().st_size for p in ACTUAL.rglob("*") if p.is_file()) / 1e6
     est = pd.Series([f["estado"] for f in fu]).value_counts().to_dict()
     L += [f"Sitio publicado en {ACTUAL} ({peso:.0f} MB, {time.time() - t0:.0f} s)",

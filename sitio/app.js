@@ -131,9 +131,8 @@
       const pie = el("p", { class: "tile-fuente" }, `Fuente: ${x.fuente}`);
       if (destino) pie.append(" · ", el("a", { href: `#pron-${destino}`, text: "Ver pronóstico →" }));
       if (serie) {
-        const a = el("a", { href: `?q=${encodeURIComponent(serie)}#datos`, text: "Ver serie histórica →" });
-        a.addEventListener("click", (e) => { e.preventDefault(); verSerie(serie); });
-        pie.append(" · ", a);
+        // lleva a la página propia de la serie (gráfico, últimos datos, CSV): indexable por buscadores
+        pie.append(" · ", el("a", { href: `serie/${encodeURIComponent(serie)}.html`, text: "Ver serie histórica →" }));
       }
       hoy.append(el("div", { class: "tile tile-hoy" },
         el("p", { class: "tile-et" }, x.titulo, el("span", { class: "tile-fecha", text: fecha })),
