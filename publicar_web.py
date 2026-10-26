@@ -1690,6 +1690,16 @@ def _fmt_v(x):
     return _num(x, 2 if abs(x) < 100000 else 0)
 
 
+def _licencia_ld(f, url_fuente):
+    """Licencia para schema.org: CC BY 4.0 en los datos propios; en los de terceros, sus condiciones de uso
+    tal como las tenemos registradas (no se les atribuye una licencia que el productor no publicó)."""
+    fid = str(f.get("id") or "")
+    if fid in ("DCM", "METAS") or fid.startswith("Datos Con Método"):
+        return "https://creativecommons.org/licenses/by/4.0/"
+    texto = f.get("licencia") or f.get("condiciones") or "Condiciones de uso del productor original"
+    return {"@type": "CreativeWork", "name": texto, "url": url_fuente}
+
+
 def series_paginas(fu, cat, raiz, slugs):
     """Una página HTML por serie (serie/<código>.html) + su CSV. Devuelve las direcciones para el sitemap."""
     destino = raiz / "serie"
@@ -1742,8 +1752,8 @@ def series_paginas(fu, cat, raiz, slugs):
               "distribution": [{"@type": "DataDownload", "encodingFormat": "text/csv", "contentUrl": f"{SITIO_URL}/serie/{sid}.csv"}]}
         if s.get("url"):
             ld["sameAs"] = s["url"]
-        if str(s.get("fuente_id", "")).startswith("Datos Con Método") or s.get("fuente_id") == "DCM":
-            ld["license"] = "https://creativecommons.org/licenses/by/4.0/"
+        ld["license"] = _licencia_ld({"id": s.get("fuente_id"), **f},
+                                     f"{SITIO_URL}/catalogo/{slugs.get(s.get('fuente_id'), '')}.html")
         (destino / f"{sid}.html").write_text(_pagina(f"{s['nombre']} · {inst} · Datos Con Método", desc, url, "\n".join(cuerpo), ld), encoding="utf-8")
         urls.append(url)
     return urls
@@ -1756,7 +1766,7 @@ def catalogo_paginas(fu, cat, destino):
     por_fuente = {}
     for s in cat:
         por_fuente.setdefault(s.get("fuente_id"), []).append(s)
-    slugs, filas_idx = {}, []
+    slugs, filas_idx, descs = {}, [], {}
     for f in sorted(fu, key=lambda x: x["nombre"]):
         sl = _slug(f["id"])
         while sl in slugs.values():
@@ -1795,8 +1805,10 @@ def catalogo_paginas(fu, cat, destino):
                       'Datos propios de Datos Con Método bajo licencia CC BY 4.0; las series de otras fuentes conservan la licencia de su productor.</p>')
         desc = (f"{f['nombre']}: {len(series)} series" + (f" y {len(f.get('tablas') or [])} tablas" if f.get("tablas") else "")
                 + " de la economía argentina para descargar, con su fuente y cómo citarlas. Datos Con Método.")
+        descs[f["id"]] = desc
         ld = {"@context": "https://schema.org", "@type": "Dataset", "name": f["nombre"], "description": desc, "url": url,
               "creator": {"@type": "Organization", "name": f.get("institucion") or f["nombre"]},
+              "license": _licencia_ld(f, url),
               "includedInDataCatalog": {"@type": "DataCatalog", "name": "Datos Con Método", "url": SITIO_URL + "/"},
               "isAccessibleForFree": True, "inLanguage": "es", "dateModified": hoy,
               "keywords": [s["nombre"] for s in series[:60]],
@@ -1818,10 +1830,15 @@ def catalogo_paginas(fu, cat, destino):
               '<th>Estado</th></tr></thead><tbody>', *filas_idx, "</tbody></table></div>"]
     ld = {"@context": "https://schema.org", "@type": "DataCatalog", "name": "Datos Con Método: catálogo de datos de la economía argentina",
           "url": f"{SITIO_URL}/catalogo/", "inLanguage": "es", "creator": {"@type": "Person", "name": "Marcos Cavanagh"},
-          "dataset": [{"@type": "Dataset", "name": f["nombre"], "url": f"{SITIO_URL}/catalogo/{slugs[f['id']]}.html"} for f in fu]}
-    (destino / "index.html").write_text(_pagina("Catálogo de datos · Datos Con Método",
-                                                f"Catálogo de {n_series} series de la economía argentina (INDEC, BCRA, Ministerio de Economía y más), "
-                                                "con fuente, período y cómo citarlas.", f"{SITIO_URL}/catalogo/", "\n".join(cuerpo), ld), encoding="utf-8")
+          "dataset": [{"@type": "Dataset", "name": f["nombre"], "description": descs[f["id"]],
+                       "creator": {"@type": "Organization", "name": f.get("institucion") or f["nombre"]},
+                       "license": _licencia_ld(f, f"{SITIO_URL}/catalogo/{slugs[f['id']]}.html"),
+                       "url": f"{SITIO_URL}/catalogo/{slugs[f['id']]}.html"} for f in fu]}
+    desc_idx = (f"Catálogo de {n_series} series de la economía argentina (INDEC, BCRA, Ministerio de Economía y más), "
+                "con fuente, período y cómo citarlas.")
+    ld["description"] = desc_idx
+    (destino / "index.html").write_text(_pagina("Catálogo de datos · Datos Con Método", desc_idx,
+                                                f"{SITIO_URL}/catalogo/", "\n".join(cuerpo), ld), encoding="utf-8")
     urls_series = series_paginas(fu, cat, destino.parent, slugs)
     # sitemap completo
     urls = [(f"{SITIO_URL}/", "daily", "1.0"), (f"{SITIO_URL}/catalogo/", "daily", "0.9"), (f"{SITIO_URL}/sobre-marcos.html", "monthly", "0.5")]
