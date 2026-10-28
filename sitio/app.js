@@ -94,7 +94,7 @@
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redibujar);
 
   // ---------- decimales por variable
-  const DEC = { inflacion: 2, dolar: 0, pib: 2, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
+  const DEC = { inflacion: 2, dolar: 0, pib: 2, desempleo: 1, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
 
   // ---------- portada
   function portada(R, F) {
@@ -126,7 +126,7 @@
       const suf = x.unidad.startsWith("%") || x.clave === "tamar" ? "%" : "";
       const val = `${pre}${fmt(x.valor, x.dec)}${suf}`;
       // enlaces al pie: "Ver pronóstico" (solo las que pide el REM) y "Ver serie histórica" (la serie en la sección Datos)
-      const destino = { inflacion: "inflacion", dolar: "dolar", pib: "pib", fiscal: "fiscal", tamar: "tasa" }[x.clave];
+      const destino = { inflacion: "inflacion", dolar: "dolar", pib: "pib", desempleo: "desempleo", fiscal: "fiscal", tamar: "tasa" }[x.clave];
       const serie = SERIE_HOY[x.clave];
       const pie = el("p", { class: "tile-fuente" }, `Fuente: ${x.fuente}`);
       if (destino) pie.append(" · ", el("a", { href: `#pron-${destino}`, text: "Ver pronóstico →" }));
@@ -150,7 +150,7 @@
   function fv(clave, v, d, conSigno = false) {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
     const pre = { dolar: "$", fiscal: "B$ " }[clave] || "";
-    const suf = ["inflacion", "pib", "tasa"].includes(clave) ? "%" : "";
+    const suf = ["inflacion", "pib", "desempleo", "tasa"].includes(clave) ? "%" : "";
     const signo = conSigno ? (v > 0 ? "+" : v < 0 ? "−" : "") : (v < 0 ? "−" : "");
     return `${signo}${pre}${fmt(Math.abs(v), d)}${suf}`;
   }
@@ -188,6 +188,8 @@
     return null;
   };
   function etiquetaH(clave, h) {
+    // desocupación: horizonte contado desde el último trimestre publicado; el "año" del REM es el IV trimestre
+    if (clave === "desempleo") return { h1: "1.er trim. sin dato", h2: "2.º trim. sin dato", h3: "3.er trim. sin dato", "año": "IV trim. del año" }[String(h)] || h;
     const g = ETIQ_H(h);
     if (g) return g;
     if (clave === "pib") return { "-1": "trim. anterior", "0": "trim. en curso", "1": "trim. siguiente" }[String(h)] || h;
@@ -479,6 +481,7 @@
     inflacion: "indec_ipc_general_indice_var_mensual", dolar: "bcra_api_tc_mayorista_a3500", ccl: "argentinadatos_dolar_ccl",
     mep: "argentinadatos_dolar_mep", pib: "indec_pib_desest_pib", super: "dcm_sepa_mensual_nacional",
     fiscal: "datosgob_452.3_RESULTADO_RIO_0_M_18_54", tamar: "bcra_api_tamar_tna",
+    desempleo: "indec_eph_desocupacion", sipa: "datosgob_151.1_TL_SIN_TAC_2012_M_15",
   };
   // busca la serie por su código en la sección Datos (abre su fuente) y baja hasta ahí; la dirección queda compartible
   function verSerie(id) {

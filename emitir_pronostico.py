@@ -86,7 +86,7 @@ def fmt(v, d, pre="", suf=""):
 
 
 FORMATO = {"inflacion": (2, "", "%"), "dolar": (0, "$", ""), "pib": (2, "", "%"), "tasa": (2, "", "%"), "fiscal": (1, "B$ ", ""),
-           "exportaciones": (0, "", ""), "importaciones": (0, "", "")}
+           "exportaciones": (0, "", ""), "importaciones": (0, "", ""), "desempleo": (1, "", "%")}
 
 
 def edge(html, salida, pdf=True, ancho=1200, alto=675):

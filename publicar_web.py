@@ -131,8 +131,16 @@ def pronosticos():
             tarjetas.append({"clave": var, "titulo": tit, "unidad": "millones de USD", "modelo": "Mismo mes del año anterior × "
                              "crecimiento reciente" + (" + precios de granos" if var == "exportaciones" else ""),
                              "filas": filas, "corrida": f_c, "relevamiento": q["relevamiento"].iloc[0]})
+    # desocupación (28-oct-2026): I = "se queda" desestacionalizado. El IV trimestre que el REM llama "año" se muestra una sola vez
+    de, f_d = ultimo_registro("desempleo")
+    if len(de):
+        de = de.drop_duplicates("periodo")
+        filas = [{"periodo": x["periodo"].replace("Q", " T"), "nuestro": x["I"], "rem": x["rem_anterior"]} for _, x in de.iterrows()]
+        tarjetas.append({"clave": "desempleo", "titulo": "Desocupación (EPH)", "unidad": "% de la población activa, 31 aglomerados urbanos",
+                         "modelo": "Último dato de la EPH corregido por la estacionalidad del trimestre", "filas": filas,
+                         "corrida": f_d, "relevamiento": de["relevamiento"].iloc[0]})
     # orden de las tarjetas en el sitio (Marcos, 24-oct-2026: importaciones donde estaba el resultado primario, y viceversa)
-    orden = ["inflacion", "dolar", "pib", "tasa", "importaciones", "exportaciones", "fiscal"]
+    orden = ["inflacion", "dolar", "pib", "desempleo", "tasa", "importaciones", "exportaciones", "fiscal"]
     return sorted(tarjetas, key=lambda t: orden.index(t["clave"]) if t["clave"] in orden else 99)
 
 
@@ -203,7 +211,24 @@ def indicadores():
                 f"Acumulado ene-{MESES_LARGOS[m['mes'].max().month - 1][:3]} {a}", "Secretaría de Hacienda", 1)
     except Exception:
         pass
-    orden = ["inflacion", "dolar", "ccl", "mep", "pib", "super", "fiscal", "tamar"]
+    try:                                                    # desocupación (EPH) y empleo registrado (SIPA)
+        de = pd.read_parquet(C / "desempleo.parquet")
+        u = de.iloc[-1]
+        q = pd.Period(u["trimestre"], "Q")
+        a = de[de["trimestre"] == str(q - 4)]
+        agregar("desempleo", "Desocupación", u["desocupacion"], "% de la población activa", u["trimestre"],
+                (f"Un año antes: {a['desocupacion'].iloc[0]:.1f}%".replace(".", ",") if len(a) else ""), "INDEC (EPH)", 1)
+        s = pd.read_parquet(C / "sipa.parquet")
+        us = s.iloc[-1]
+        ant = s[s["mes"] == str(pd.Period(us["mes"], "M") - 12)]
+        if len(ant):
+            det = (f"{(us['total'] / ant['total'].iloc[0] - 1) * 100:+.1f}% interanual · asalariados privados "
+                   f"{(us['privados'] / ant['privados'].iloc[0] - 1) * 100:+.1f}%").replace(".", ",")
+            agregar("sipa", "Empleo registrado (SIPA)", us["total"] / 1000, "millones de trabajadores", us["mes"], det,
+                    "Secretaría de Trabajo", 2)
+    except Exception:
+        pass
+    orden = ["inflacion", "dolar", "ccl", "mep", "pib", "desempleo", "sipa", "super", "fiscal", "tamar"]
     return sorted(out, key=lambda x: orden.index(x["clave"]) if x["clave"] in orden else 99)
 
 
@@ -276,6 +301,13 @@ def historial():
         q["hh"] = np.where(q["tipo"] == "mes", "m" + q["h"].astype(str), np.where(q["h"] == 0, "año", "año+1"))
         out.append(bloque(q, "origen", "A", "rem", "real", "pct", "hh", ["m1", "m3", "m6", "año"], "m3", "objetivo", "% de error",
                           tit, "Gráfico: valor de cada mes, pronosticado 3 meses antes. El REM pregunta comercio exterior desde dic-2020.", var))
+    # desocupación (EPH): h1 = primer trimestre sin dato publicado
+    d = pd.read_csv(C / "replica_desempleo.csv", encoding="utf-8-sig")
+    d["origen"] = pd.PeriodIndex(d["origen"], freq="M")
+    d = d[d["etiqueta"].isin(["h1", "h2", "h3", "año"])]
+    out.append(bloque(d, "origen", "I", "rem", "real", "abs", "etiqueta", ["h1", "h2", "h3", "año"], "h1", "objetivo", "puntos porcentuales",
+                      "Desocupación (EPH)", "Gráfico: tasa de cada trimestre, pronosticada cuando era el primero sin dato publicado. "
+                      "El REM pregunta la desocupación desde dic-2020. El error de muestreo de la EPH es de ±0,5 puntos.", "desempleo"))
     return out
 
 
@@ -360,7 +392,8 @@ def estado(ultimo, frec, historica=False):
 
 def frec_norm(f):
     f = str(f).lower()
-    return {"d": "D", "m": "M", "month": "M", "quarter": "T", "q": "T", "year": "A", "a": "A"}.get(f, "M")
+    # "t" agregado el 28-oct-2026: antes la "T" de las series trimestrales propias (PIB, EPH) caía en "M" y salían atrasadas
+    return {"d": "D", "m": "M", "month": "M", "quarter": "T", "q": "T", "t": "T", "year": "A", "a": "A"}.get(f, "M")
 
 
 def mtime(*rutas):
@@ -601,6 +634,17 @@ def catalogo_y_series(destino):
                      ("fbcf", "Inversión (FBCF)"), ("exportaciones", "Exportaciones (cuentas nacionales)"), ("importaciones", "Importaciones (cuentas nacionales)")):
         escribir(f"indec_pib_desest_{col}", f"{nom}, desestacionalizado (millones de $ de 2004)", "INDEC (cuentas nacionales)", "T", "",
                  "https://www.indec.gob.ar/ftp/cuadros/economia/sh_oferta_demanda_desest_MM_AA.xls", fechas, v[col], "actividad")
+    # d2) desocupación (EPH, directo del INDEC) y empleo registrado (SIPA; si la bajada semanal ya lo trae, no se repite)
+    de = pd.read_parquet(C / "desempleo.parquet")
+    escribir("indec_eph_desocupacion", "Tasa de desocupación, EPH 31 aglomerados urbanos (% de la PEA)", "INDEC (EPH, directo)", "T", "",
+             "https://www.indec.gob.ar/ftp/cuadros/sociedad/cuadros_tasas_indicadores_eph_MM_AA.xls",
+             [pd.Period(q, "Q").start_time for q in de["trimestre"]], de["desocupacion"], "actividad")
+    sp = pd.read_parquet(C / "sipa.parquet")
+    for sid, col, nom in (("151.1_TL_SIN_TAC_2012_M_15", "total", "Total de trabajadores registrados (SIPA), sin estacionalidad (miles)"),
+                          ("151.1_AARIADOTAC_2012_M_26", "privados", "Asalariados registrados del sector privado (SIPA), sin estacionalidad (miles)")):
+        if f"datosgob_{sid}" not in set(h["id"]):
+            escribir(f"datosgob_{sid}", nom, "datos.gob.ar (Secretaría de Trabajo)", "M", "",
+                     f"https://apis.datos.gob.ar/series/api/series/?ids={sid}", pd.PeriodIndex(sp["mes"], freq="M").to_timestamp(), sp[col], "actividad")
     # e) dólares paralelos (venta)
     d = pd.read_parquet(C / "dolares.parquet")
     for s, q in d.groupby("serie"):
@@ -718,7 +762,7 @@ def catalogo_y_series(destino):
     cat = pd.DataFrame(filas)
     # una sola fuente para todo lo que bajamos directo del INDEC y para la API del BCRA
     cat["fuente"] = cat["fuente"].replace({"INDEC (archivo)": "INDEC", "INDEC (IPC, directo)": "INDEC", "INDEC (EMAE)": "INDEC",
-                                           "INDEC (cuentas nacionales)": "INDEC", "BCRA API v4.0 (actualización diaria)": "BCRA API v4.0"})
+                                           "INDEC (cuentas nacionales)": "INDEC", "INDEC (EPH, directo)": "INDEC", "BCRA API v4.0 (actualización diaria)": "BCRA API v4.0"})
     cat = cat.sort_values(["fuente", "nombre"]).reset_index(drop=True)
     return cat
 
@@ -923,6 +967,17 @@ def tabla_comparacion():
         q = d[(d["var"] == var) & (d["tipo"] == "año")]
         agregar(q, var, "millones de USD", nom, "A", "anio", q["objetivo"].astype(str).tolist(),
                 ["año en curso" if h == 0 else "año siguiente" for h in q["h"]], q["objetivo"].astype(str).tolist())
+    # desocupación (EPH); el "año" del REM es el IV trimestre
+    d = pd.read_csv(C / "replica_desempleo.csv", encoding="utf-8-sig")
+    d["origen"] = pd.PeriodIndex(d["origen"], freq="M")
+    nom_h = lambda x: ({"h1": "primer trimestre sin dato", "h2": "segundo trimestre sin dato", "h3": "tercer trimestre sin dato",
+                        "año": "IV trimestre del año en curso", "año+1": "IV trimestre del año siguiente"}.get(x, x))
+    q = d[d["tipo"] == "trim"]
+    agregar(q, "desocupacion", "% de la PEA", "Desocupación (EPH, % de la PEA)", "I", "trimestre", q["objetivo"].tolist(),
+            [nom_h(e) for e in q["etiqueta"]], q["objetivo"].str.replace("Q", " T").tolist())
+    q = d[d["tipo"] == "año"]
+    agregar(q, "desocupacion", "% de la PEA", "Desocupación (EPH, % de la PEA)", "I", "anio", q["objetivo"].str[:4].tolist(),
+            [nom_h(e) for e in q["etiqueta"]], q["objetivo"].str.replace("Q", " T").tolist())
     t = pd.DataFrame(filas)
     t = t[t["nuestro"].notna() & t["rem"].notna()]
     # distribución de las consultoras de ese informe
@@ -1316,6 +1371,7 @@ INSUMOS = [
     ("datosgob_74.3_IIT_0_M_25", "Importaciones (INDEC)", 85),
     ("bm_indice_grains", "Precios de granos (Banco Mundial)", 70),
     ("bm_indice_oils_meals", "Precios de aceites y harinas (Banco Mundial)", 70),
+    ("indec_eph_desocupacion", "Desocupación, EPH (INDEC)", 265),   # trimestral: el siguiente sale ~8,5 meses después de empezado el último
 ]
 
 

@@ -99,6 +99,9 @@ DATOS_GOB = [
     "74.3_IIT_0_M_25", "74.3_IET_0_M_16", "74.3_IBCPP_0_M_32", "74.3_IICL_0_M_42",
     "453.1_SERIE_ORIGNAL_0_0_14_46", "453.1_SERIE_TENDCLO_0_0_21_61",
     "41.3_DC_0_A_21",
+    # empleo registrado SIPA (Secretaría de Trabajo), sin estacionalidad: total y asalariados privados. Probado contra la
+    # EPH para anticipar la desocupación el 28-oct-2026 (probar_sipa.py): no sirve, pero se guarda (regla "guardar todo lo revisado")
+    "151.1_TL_SIN_TAC_2012_M_15", "151.1_AARIADOTAC_2012_M_26",
 ]   # (recaudación total 172.3 y gasoil 363.3 ya estaban más arriba: repetirlas duplicaba los datos; quitadas el 18-oct-2026)
 # dataset completo "Indicadores de producción de la Industria manufacturera" (41.3, Subsecretaría de Programación
 # Macroeconómica): las 95 series (petróleo, faena, lácteos, papel, química, combustibles, construcción, siderurgia,
