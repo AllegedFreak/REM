@@ -32,6 +32,10 @@ H = range(1, 7)
 CAMBIO = pd.Period("2024-12", "M")          # desde este relevamiento el REM pide TAMAR (antes BADLAR)
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def huber(X, y, x0):
     Xc = np.column_stack([np.ones(len(X)), X])
     try:
@@ -226,7 +230,7 @@ def main():
         m = t + h
         ra = prev["rem"].get(m, np.nan)
         L.append(f"   {str(m):9}{ra:9.2f}{r_now:8.2f}{a:8.2f}{fw.get(h, np.nan):9.2f}")
-        reg.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "mes": str(m), "h": h,
+        reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": h,
                     "se_queda": r_now, "A": a, "forward": fw.get(h, np.nan), "rem_anterior": ra, "provisorio": hasta != "hasta el 25"})
     p = C / "registro_tasa.csv"
     pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")

@@ -139,7 +139,8 @@ td{{padding:2px 3px;border-bottom:1px solid var(--linea)}} .num{{text-align:righ
 <div class="grilla">{''.join(bloques)}</div>
 <div class="pie">
 <p>* REM anterior: mediana del último Relevamiento de Expectativas de Mercado publicado por el BCRA para el mismo período (solo como referencia).
-Nuestros pronósticos usan únicamente datos públicos disponibles a la fecha de registro, sin usar el REM.</p>
+Nuestros pronósticos usan únicamente datos públicos disponibles a la fecha de registro. Algunos modelos aprenden de los REM
+ya publicados en meses anteriores; ninguno usa el REM del mes del relevamiento, que todavía no se conoce.</p>
 <p>Huella SHA-256 de los mismos datos en CSV (publicado en el sitio): <span class="hash">{sha_csv}</span></p>
 <p>La huella SHA-256 de este PDF se publica en LinkedIn y se sella en Bitcoin con OpenTimestamps: si se cambiara una sola letra
 de este documento, la huella sería otra. Cómo verificarlo: www.datosconmetodo.com/#sellos. Ejercicio estadístico; no es una
@@ -327,7 +328,13 @@ def main():
     rel = str(pd.Period(hoy, "M"))
     reg = registro()
     desde = dia_emision(rel)
-    if hoy.normalize() >= desde and rel not in set(reg["relevamiento"]):
+    # EMISIÓN AUTOMÁTICA DESACTIVADA (decisión de Marcos, 29-oct-2026): el sello n.º 1 salió solo y con errores (sin
+    # exportaciones). Desde ahora se sella SOLO a mano y con el OK de Marcos: py -3.13 emitir_pronostico.py --emitir
+    if "--emitir" not in args:
+        L.append(f"Emisión automática desactivada: para sellar el pronóstico de {rel}, revisarlo y correr a mano "
+                 f"'py -3.13 emitir_pronostico.py --emitir' (con el OK de Marcos). Sello del mes: "
+                 f"{'ya emitido' if rel in set(reg['relevamiento']) else 'pendiente'}.")
+    elif hoy.normalize() >= desde and rel not in set(reg["relevamiento"]):
         rem_pub = str(pd.Timestamp(pd.read_parquet(C / "rem_normalizada.parquet", columns=["mes_relevamiento"])["mes_relevamiento"].max()).to_period("M"))
         if rem_pub >= rel:
             L.append(f"No se emite: el REM de {rel} ya está publicado (llegamos tarde este mes).")

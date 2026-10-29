@@ -38,6 +38,10 @@ PRECIOS = {"px_om": "bm_indice_oils_meals", "px_gr": "bm_indice_grains"}     # s
 MIN = 24
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def huber(X, y, x0):
     Xc = np.column_stack([np.ones(len(X)), X])
     try:
@@ -188,7 +192,7 @@ def main():
         L.append(f"   {'período':9}{'REM ant.':>10}{'I':>10}{'A':>10}")
         for _, x in hoy.iterrows():
             L.append(f"   {x['objetivo']:9}{ra.get(x['objetivo'], np.nan):10.0f}{x['I']:10.0f}{x['A']:10.0f}")
-            reg.append({"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t_hoy), "variable": var,
+            reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "variable": var,
                         "periodo": x["objetivo"], "I": x["I"], "A": x["A"], "rem_anterior": ra.get(x["objetivo"], np.nan)})
         L.append("")
     pd.concat(todo).to_csv(C / "replica_comercio.csv", index=False, encoding="utf-8-sig", float_format="%.2f")

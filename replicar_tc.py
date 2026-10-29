@@ -33,6 +33,10 @@ VENTANA = 12
 HORIZ = [1, 2, 3, 4, 5, 6, 12, 100, 101]   # 100/101 = diciembre del año en curso / siguiente
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def cargar():
     b = pd.read_parquet(C / "bcra_series.parquet")
     b["fecha"] = pd.to_datetime(b["fecha"])
@@ -183,7 +187,7 @@ def main():
             rem_ant = G[(G["origen"] == o - 1) & (G["obj"] == obj)]["rem"].mean()
         else:
             rem_ant = G[(G["origen"] == o - 1) & (G["h"] == h)]["rem"].mean()
-        filas_h.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(o), "h": h,
+        filas_h.append({"fecha_corrida": CORRIDA, "relevamiento": str(o), "h": h,
                         "objetivo": str(obj), "futuro": f_h, "A_dolar": f_h * np.exp(desc), "I_dolar": f_h * np.exp(prim),
                         "rem_anterior": rem_ant})
     H = pd.DataFrame(filas_h)

@@ -43,6 +43,7 @@ PASOS = [
     ("Estimaciones agrícolas (Ministerio de Agricultura)", "actualizar_estimaciones_agricolas.py", "informe_estimaciones_agricolas.txt"),
     ("Pronóstico de exportaciones e importaciones", "replicar_comercio.py", "informe_comercio.txt"),
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
+    ("Pronóstico de la inflación núcleo", "replicar_nucleo.py", "informe_nucleo.txt"),   # usa pronostico_insumos.csv de replicar_rem (29-oct-2026)
     ("Pronóstico sellado (desde el día 26) y sellos de Bitcoin", "emitir_pronostico.py", "informe_sellos.txt"),
     ("Sitio web Datos Con Método", "publicar_web.py", "informe_web.txt"),   # después de todos los pronósticos
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
@@ -50,7 +51,7 @@ PASOS = [
 ]
 LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ERROR", "FALLA", "No se pudo",
                 "Excel", "IPC descargado", "Brecha", "Series guardadas", "Sin cambios", "Serie encadenada", "Días guardados",
-                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0", "Sitio publicado", "Fuentes atrasadas", "Pronóstico sellado n.º", "Huella SHA-256", "PUBLICAR EN LINKEDIN", "anclado en Bitcoin", "Último trimestre con dato", "Trimestres nuevos", "PRONÓSTICO DE HOY (desocupación")
+                "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0", "Sitio publicado", "Fuentes atrasadas", "Pronóstico sellado n.º", "Huella SHA-256", "PUBLICAR EN LINKEDIN", "anclado en Bitcoin", "Último trimestre con dato", "Trimestres nuevos", "PRONÓSTICO DE HOY (desocupación", "Núcleo 20")
 
 
 def main():

@@ -58,6 +58,10 @@ B_12_PUNTOS = ["sorpresa", "dev0", "dev1"]          # B a 12 meses hasta el 15-o
 # B a 12 meses revisa el REM anterior EN LOGARITMOS (16-oct-2026): rev_l = log(1+REM12) - log(1+REM12 anterior), x100.
 # En 2025-26 la distancia al REM baja de 1,62 a 1,03 pp (REM anterior sin cambios: 1,18); en toda la muestra ~igual.
 REV_LOG = lambda tipo, H, cols: tipo == "revision" and H == "12m" and "dbrecha" in cols
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def y_de(tipo, H, cols):
     if tipo == "nivel":
         return "rem_l" if EN_LOG(tipo, H, cols) else "rem"
@@ -348,7 +352,7 @@ def alertas(T, O, t, rasgos, hist_s, fu_todo):
                   (("verde", k == 0), ("amarillo", k == 1), ("rojo", k >= 2)) if m.sum()]
         L.append(f"     {H:4} " + " · ".join(partes) + "  " + ("pp" if H == "m1" else "pp de inflación a 12 meses"))
     L.append(f"     Meses en rojo: {', '.join(str(p) for p in cuenta[(cuenta >= 2) & (cuenta.index < t)].index)}")
-    fila = pd.DataFrame([{"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t),
+    fila = pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t),
                           "semaforo": nivel, "senales_en_alerta": n_al, "cuales": " ".join(activas),
                           **{f"z_{c}": Z[c].get(t, np.nan) for c, _, _ in SENALES}}])
     fila.to_csv(REGISTRO_ALERTAS, mode="a", header=not REGISTRO_ALERTAS.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")
@@ -420,7 +424,7 @@ def pronostico_inflacion(O, t, lp, rem12):
             continue
         mes = "próx. 12m" if H == "12m" else str(t + int(H[1:]))
         linea.append(f"{mes}: {p:.2f}")
-        reg.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "H": H,
+        reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "H": H,
                     "objetivo": "12m" if H == "12m" else mes, "pronostico_inflacion": p,
                     "fuente": "I + termómetro" if (H == "m0" and corr) else "I"})
     if reg:
@@ -561,7 +565,7 @@ def termometro(O, t):
           f"   A corregida hacia el REM:   {res['REM'][0]:.2f}%   (b {res['REM'][1]:.2f}, t {res['REM'][2]:.1f}, {res['REM'][3]} meses)",
           f"   A corregida hacia el INDEC: {res['INDEC'][0]:.2f}%   (b {res['INDEC'][1]:.2f}, t {res['INDEC'][2]:.1f}, {res['INDEC'][3]} meses)",
           "   (No reemplaza a A: se registra para ver, mes a mes, si la corrección acierta.)"]
-    fila = pd.DataFrame([{"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t),
+    fila = pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t),
                           "termometro_pct": s_t, "A_m0": a_t, "A_corr_rem": res["REM"][0], "A_corr_indec": res["INDEC"][0],
                           "meses_estimacion": res["REM"][3]}])
     fila.to_csv(REGISTRO_TERMOMETRO, mode="a", header=not REGISTRO_TERMOMETRO.exists(), index=False,
@@ -1073,7 +1077,7 @@ def main():
                      f"{preds[A_PRONOSTICO]:16.2f} | {rango_inf:>22}")
             I_HOY[H] = elegir_I(preds, fila)
             preds[A_PRONOSTICO] = elegir_A(preds, fila)
-            registro.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "H": H,
+            registro.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "H": H,
                              "objetivo": "12m" if H == "12m" else str(t + h), "rem_anterior": fila["rem_ant"],
                              "B": preds["B"], "B_rango_bajo": lo_rem, "B_rango_alto": hi_rem,
                              "A": preds[A_PRONOSTICO], "A_variante": A_PRONOSTICO,

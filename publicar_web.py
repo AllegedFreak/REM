@@ -70,7 +70,14 @@ def ultimo_registro(nombre):
     d = pd.read_csv(p, encoding="utf-8-sig")
     d = d[d["relevamiento"] == d["relevamiento"].max()]
     u = d["fecha_corrida"].max()
-    return d[d["fecha_corrida"] == u].copy(), u
+    # toda la última corrida aunque sus filas difieran en unos minutos (28-oct-2026: exportaciones 12:12 e importaciones
+    # 12:13 en la misma corrida; con "== u" el sello n.º 1 salió sin exportaciones). Las corridas están a horas de distancia
+    f = pd.to_datetime(d["fecha_corrida"])
+    d = d[f >= f.max() - pd.Timedelta(minutes=15)]
+    if "variable" in d.columns:                     # si una variable quedó repetida, su fila más nueva
+        d = d.sort_values("fecha_corrida").drop_duplicates([c for c in ("variable", "periodo", "H", "h", "trimestre", "mes")
+                                                            if c in d.columns], keep="last")
+    return d.copy(), u
 
 
 def rem_ultimo():

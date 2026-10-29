@@ -9,7 +9,11 @@
 #      -> E:\SEPA\resumen\sepa_AAAA-MM-DD.parquet
 #   4) controla y avisa: S01 archivo de cadena roto | S02 día que se perdió (ya no está en el portal) |
 #      S03 cadena que dejó de informar | S04 muchos precios absurdos | S05 disco E: no disponible |
-#      S06 el portal republicó un día con contenido distinto
+#      S06 el portal republicó un día con contenido distinto | S07 cadena regular que lleva 14+ días sin datos |
+#      S08 falta una cadena que es 25%+ de la canasta en alguna región (hoy Carrefour/INC, ~50% en NOA, NEA y Cuyo)
+#   S03 no avisa si la cadena suele faltar ese día de la semana (28-oct-2026: La Agrícola Regional, código 20, casi
+#   nunca informa domingos ni lunes). S07 es alerta entre 14 y 90 días sin datos (un solo cartel por cadena) y después
+#   queda como línea informativa (28-oct-2026: Libertad, código 16, sin datos desde el 2-sep-2026).
 # Región: provincia -> región del IPC. GBA = CABA + sucursales de la provincia de Buenos Aires a menos de 40 km del
 # centro porteño (aproximación de los 24 partidos).
 # Uso:
@@ -64,7 +68,57 @@ CONTROLES = {
     "S04": ("precios_absurdos", "Más de 5% de los precios de una cadena son cero, negativos o gigantes"),
     "S05": ("disco_no_disponible", "El disco E: no está conectado: no se pudo guardar nada"),
     "S06": ("dia_republicado", "El portal republicó un día con contenido distinto (se guarda como versión nueva)"),
+    "S07": ("cadena_sin_datos", "Una cadena que informaba seguido lleva entre 14 y 90 días sin datos"),
+    "S08": ("cadena_grande_ausente", "Falta una cadena que es 25% o más de la canasta del índice en alguna región"),
 }
+PESO_GRANDE = 25   # S08: % de los ítems de la canasta en una región (28-oct-2026: Carrefour es ~50% en NOA, NEA y Cuyo)
+
+
+def cadenas_grandes():
+    """{cadena: 'Noroeste 50%, ...'} para las que pesan PESO_GRANDE% o más de los ítems de la canasta en alguna región
+    (último items_<día>.parquet de indice_sepa.py). Vacío si todavía no hay canasta."""
+    ps = sorted((DISCO / "canasta").glob("items_*.parquet"))
+    if not ps:
+        return {}
+    x = pd.read_parquet(ps[-1], columns=["region", "id_comercio"])
+    t = pd.crosstab(x["region"], x["id_comercio"].astype(str), normalize="index") * 100
+    return {c: ", ".join(f"{r} {v:.0f}%" for r, v in t[c].sort_values(ascending=False).items() if v >= PESO_GRANDE)
+            for c in t.columns if t[c].max() >= PESO_GRANDE}
+SIN_DATOS_DIAS = (14, 90)   # S07: alerta desde 14 días sin datos; desde 90 solo se informa
+
+
+def presencias(hasta=None, n=150):
+    """{fecha: códigos de cadena con datos} de los últimos n resúmenes (anteriores a 'hasta' si se indica)."""
+    import pyarrow.parquet as pq
+    ps = sorted(RESUMEN.glob("sepa_*.parquet"))
+    if hasta:
+        ps = [p for p in ps if p.stem < f"sepa_{hasta}"]
+    return {p.stem[5:15]: set(map(str, pq.read_table(p, columns=["id_comercio"]).column(0).unique().to_pylist())) for p in ps[-n:]}
+
+
+def falta_habitual(cadena, fecha, pres, semanas=8):
+    """True si la cadena informó menos de la mitad de las veces ese mismo día de la semana en las últimas 'semanas'."""
+    dia = pd.Timestamp(fecha).dayofweek
+    mismos = [f for f in sorted(pres) if pd.Timestamp(f).dayofweek == dia][-semanas:]
+    return len(mismos) >= 4 and sum(cadena in pres[f] for f in mismos) < len(mismos) / 2
+
+
+def cadenas_sin_datos(pres, nombres):
+    """Cadenas que informaban seguido (la mitad o más de los 60 días antes de su último dato) y llevan 14+ días sin datos."""
+    dias = sorted(pres)
+    if not dias:
+        return []
+    hoy = pd.Timestamp(dias[-1])
+    out = []
+    for c in set().union(*pres.values()):
+        ult = max(f for f in dias if c in pres[f])
+        sin = (hoy - pd.Timestamp(ult)).days
+        if sin < SIN_DATOS_DIAS[0]:
+            continue
+        ventana = [f for f in dias if pd.Timestamp(ult) - pd.Timedelta(days=60) <= pd.Timestamp(f) <= pd.Timestamp(ult)]
+        if len(ventana) >= 10 and sum(c in pres[f] for f in ventana) >= len(ventana) / 2:
+            out.append((c, nombres.get(c, "?"), ult, sin))
+    return sorted(out, key=lambda x: x[3])
 
 
 class ErrorSepa(Exception):
@@ -297,8 +351,17 @@ def main():
                 conteo = pd.Series([c for p in anteriores for c in
                                     set(pd.read_parquet(p, columns=["id_comercio"])["id_comercio"].astype(str))]).value_counts()
                 faltan = set(conteo.index) - set(cadenas)
+                grandes = cadenas_grandes()
+                for c in sorted(faltan & set(grandes)):   # S08 antes que S03 y sin excepción por día de la semana
+                    alertas.append({"codigo": "S08", "fecha": fecha, "detalle": f"no informó la cadena {c}, que pesa {grandes[c]} de la canasta"})
+                faltan -= set(grandes)
                 regulares = sorted(c for c in faltan if conteo[c] >= min(5, len(anteriores)))
                 intermitentes = sorted(faltan - set(regulares))
+                pres = presencias(hasta=fecha, n=70) if regulares else {}
+                habituales = [c for c in regulares if falta_habitual(c, fecha, pres)]
+                regulares = [c for c in regulares if c not in habituales]
+                if habituales:
+                    informe.append(f"   ({fecha}: no informaron {habituales}, que suelen faltar ese día de la semana; no se avisa)")
                 if regulares:
                     alertas.append({"codigo": "S03", "fecha": fecha, "detalle": f"no informaron las cadenas {regulares}"})
                 if intermitentes:
@@ -311,6 +374,24 @@ def main():
             perdidos = [f for f in todos if f not in bajados and f not in en_portal]
             for f in perdidos[-10:]:
                 alertas.append({"codigo": "S02", "fecha": f, "detalle": "día que no se bajó a tiempo"})
+        # cadenas que dejaron de informar (S07). "fecha" = último día con datos: el cartel sale una sola vez por cadena
+        try:
+            pres = presencias()
+            ult_dia = max(pres)
+            nombres = {}
+            for f in sorted(pres)[::-1]:
+                faltan_nombre = {c for c in pres[f]} - set(nombres)
+                if faltan_nombre:
+                    x = pd.read_parquet(RESUMEN / f"sepa_{f}.parquet", columns=["id_comercio", "razon_social"])
+                    x["id_comercio"] = x["id_comercio"].astype(str)
+                    nombres.update(x.drop_duplicates("id_comercio").set_index("id_comercio")["razon_social"].to_dict())
+            for c, nom, ult, sin in cadenas_sin_datos(pres, nombres):
+                if sin <= SIN_DATOS_DIAS[1]:
+                    alertas.append({"codigo": "S07", "fecha": ult, "detalle": f"cadena {c} ({nom}): {sin} días sin datos (hasta el {ult_dia})"})
+                else:
+                    informe.append(f"   (cadena {c}, {nom}: sin datos desde el {ult}, hace {sin} días; ya no se avisa)")
+        except Exception as e:
+            informe.append(f"   (no se pudo revisar qué cadenas dejaron de informar: {type(e).__name__}: {e})")
         informe.append("")
         if nuevos:
             informe.append(f"{'día':10} {'MB':>6} {'precios':>12} {'filas resumen':>14} {'cadenas':>8} {'productos':>10}")

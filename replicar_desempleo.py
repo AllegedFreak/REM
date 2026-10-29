@@ -40,6 +40,10 @@ PANDEMIA = pd.period_range("2020Q2", "2021Q1", freq="Q")
 ROMANO = {"I": 1, "II": 2, "III": 3, "IV": 4}
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def huber(X, y, x0):
     Xc = np.column_stack([np.ones(len(X)), X])
     try:
@@ -176,7 +180,7 @@ def main():
             q = pd.Period(x["objetivo"], "Q")
             rv = ra.get((q, x["tipo"]), np.nan)
             L.append(f"   {x['objetivo'] + ' ' + x['etiqueta']:16}{rv:5.1f}{x['I_prom']:8.1f}{x['I_okun']:8.1f}{x['I']:8.1f}{x['A']:8.1f}")
-            reg.append({"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t_hoy), "periodo": x["objetivo"],
+            reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "periodo": x["objetivo"],
                         "etiqueta": x["etiqueta"], "I": x["I"], "A": x["A"], "rem_anterior": rv})
         p = C / "registro_desempleo.csv"
         pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.2f")

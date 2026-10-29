@@ -42,6 +42,10 @@ MIN = 24
 K = 6
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def bajar_imig(L):
     COPIAS.mkdir(parents=True, exist_ok=True)
     try:
@@ -227,7 +231,7 @@ def main():
             c_i[a] = (kk / 12 * sin_meta / 1000 / esc + (1 - kk / 12) * mv) * esc * 1000
         L.append(f"   {a:<6}{ra.get(a, np.nan):10.0f}{c_i[a] / 1000:10.0f}{sin_meta / 1000:10.0f}{mv:8.2f}"
                  f"{ra.get(a, np.nan) / esc:13.2f}{c_i[a] / 1000 / esc:8.2f}")
-        reg.append({"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "imig_hasta": str(ult),
+        reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "imig_hasta": str(ult),
                     "anio": a, "I": c_i[a] / 1000, "I_sin_meta": sin_meta / 1000, "meta_pct_pib": mv, "rem_anterior": ra.get(a, np.nan)})
     pr = C / "registro_fiscal.csv"
     nuevo = pd.DataFrame(reg)

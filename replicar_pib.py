@@ -37,6 +37,10 @@ COLS = ["nc_ult", "nc_p3", "nc_tc", "meses_conocidos", "pib_ult", "emae_mm"]   #
 # el primer dato: anterior 0,26 vs 0,42, en curso 0,49 vs 0,56, siguiente 0,42 vs 0,61 pp.
 
 
+CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
+# exportaciones e importaciones quedaron en 12:12 y 12:13 y el sello n.º 1 salió sin exportaciones)
+
+
 def huber(X, y, x0):
     Xc = np.column_stack([np.ones(len(X)), X])
     try:
@@ -248,7 +252,7 @@ def main():
         i_ = f["emae_nc"]
         rem_ant = g[(g["origen"] == t - 1) & (g["Q"] == Q)]["rem"].mean()
         hoy.append(f"   {str(Q):8} {rem_ant:12.2f} {f['nc_ult']:9.2f} {a:8.2f} {i_:8.2f}   (meses de EMAE conocidos: {f['meses_conocidos']})")
-        reg.append({"fecha_corrida": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), "relevamiento": str(t), "trimestre": str(Q),
+        reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "trimestre": str(Q),
                     "emae_solo": f["emae_nc"], "A_pib": a, "I_pib": i_, "rem_anterior": rem_ant})
     if reg:
         p = C / "registro_pib.csv"
