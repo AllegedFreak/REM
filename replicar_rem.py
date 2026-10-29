@@ -247,20 +247,35 @@ def pred_metodo(X, y, x0, edades, semivida=None, lam=0.0):
 
 
 def combustible_cortes(cortes, producto="Nafta (súper)%"):
-    """Precio mediano en surtidor (país, horario diurno) vigente en cada momento de `cortes`, desde la base de
-    actualizar_combustibles.py. Mismo criterio que guardar_historicas: cada precio rige hasta el próximo cambio de la
-    estación, con tope de 6 meses. Si no está el disco E:, devuelve vacío (las variantes con combustibles quedan afuera)."""
+    """Índice de precios en surtidor (país) en cada momento de `cortes`, desde la base de actualizar_combustibles.py.
+    Cada precio rige hasta el próximo cambio de la estación, con tope de 6 meses.
+    Desde el 30-oct-2026 es un índice ENCADENADO DE LAS MISMAS ESTACIONES (como el INDEC): entre dos cortes consecutivos,
+    media geométrica de precio_b/precio_a de las estaciones vigentes en los dos. Antes era la mediana de todas las vigentes:
+    cuando vencían de golpe muchas estaciones con precios viejos (más baratos), la mediana saltaba sin que subiera ningún
+    precio (dic-2025: +17% en 5 días al pasar de 3.570 a 2.087 estaciones). El nivel arranca en la mediana del primer
+    corte, así que se usa en diferencias de logaritmos igual que antes. Pedir TODOS los cortes en una sola llamada
+    (si se piden por separado, cada llamada tiene su propia base). Si no está el disco E:, devuelve vacío."""
     import duckdb
     base = "E:/combustibles/precios.parquet"
     try:
-        con = duckdb.connect()
-        con.register("cortes", pd.DataFrame({"ts": pd.to_datetime(cortes)}))
-        r = con.execute(f"""
-            with p as (select * from read_parquet('{base}') where producto like '{producto}'),
-            iv as (select f, precio, least(coalesce(lead(f) over (partition by est, producto order by f), current_timestamp),
-                                          f + interval 6 month) as hasta from p)
-            select c.ts, median(iv.precio) as precio from cortes c join iv on iv.f <= c.ts and iv.hasta > c.ts group by c.ts""").df()
-        return r.set_index("ts")["precio"].sort_index()
+        p = duckdb.connect().execute(f"select est, f, precio from read_parquet('{base}') where producto like '{producto}' "
+                                     "and precio > 0 order by f").df()
+        cs = sorted(pd.to_datetime(pd.Series(cortes)).unique())
+        vig = {}
+        for ts in cs:
+            q = p[(p["f"] <= ts) & (p["f"] > ts - pd.DateOffset(months=6))]
+            vig[ts] = q.groupby("est")["precio"].last()
+        nivel, out = None, {}
+        for a, b in zip([None] + cs[:-1], cs):
+            if a is None or nivel is None:
+                nivel = float(vig[b].median()) if len(vig[b]) else None
+            else:
+                comunes = vig[a].index.intersection(vig[b].index)
+                if len(comunes) >= 50:
+                    nivel *= float(np.exp(np.log(vig[b][comunes] / vig[a][comunes]).mean()))
+            if nivel is not None:
+                out[b] = nivel
+        return pd.Series(out, name="precio").sort_index()
     except Exception:
         return pd.Series(dtype=float)
 # réplica A que se usa en el pronóstico de la sección 5 (se elige mirando 1 y 1b). Desde el 15-oct-2026, "A" (con EI): con la
@@ -716,8 +731,10 @@ def main():
     itcrm_d = itcrm_d[itcrm_d["fecha"].dt.day <= DIA_CORTE_TC]
     itcrm25 = itcrm_d.groupby(itcrm_d["fecha"].dt.to_period("M"))["valor"].mean()
     meses_c = pd.period_range("2016-01", pd.Period(pd.Timestamp.today(), "M"), freq="M")
-    c25 = combustible_cortes([pd.Timestamp(m.year, m.month, DIA_CORTE_TC, 23, 59) for m in meses_c])
-    cfin = combustible_cortes([m.to_timestamp(how="end").floor("s") for m in meses_c])
+    cortes25 = [pd.Timestamp(m.year, m.month, DIA_CORTE_TC, 23, 59) for m in meses_c]
+    cortesfin = [m.to_timestamp(how="end").floor("s") for m in meses_c]
+    ci = combustible_cortes(cortes25 + cortesfin)              # una sola cadena: el 25 y el fin de mes en la misma base
+    c25, cfin = ci.reindex(pd.to_datetime(cortes25)).dropna(), ci.reindex(pd.to_datetime(cortesfin)).dropna()
     lc25 = pd.Series(np.log(c25.values), index=pd.DatetimeIndex(c25.index).to_period("M")) if len(c25) else pd.Series(dtype=float)
     lcfin = pd.Series(np.log(cfin.values), index=pd.DatetimeIndex(cfin.index).to_period("M")) if len(cfin) else pd.Series(dtype=float)
     lcfin = lcfin[lcfin.index < pd.Period(pd.Timestamp.today(), "M")]          # el mes en curso no está cerrado
