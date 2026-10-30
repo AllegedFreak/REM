@@ -158,6 +158,26 @@ def main():
             f_con = np.prod([cam[mm] for mm in con]) if con else 1.0
             for mm in meses:
                 cam.setdefault(mm, (f_anio(t_hoy.year) ** rk[k] / f_con) ** (1 / (12 - len(con))) if len(con) < 12 else 1.0)
+        # bajada gradual (30-oct-2026, Marcos: opción "a"): los meses sin pronóstico propio siguen una línea (en log) que va del
+        # último mes con pronóstico propio al promedio de lo que falta de cada año (ubicado en el centro de esos meses) y sigue
+        # con la misma pendiente; después cada año se corre en paralelo para que su total dic/dic quede igual que antes.
+        propios = set(H["obj"]) | {mm for mm in cam if mm < t_hoy}
+        ult_p = max(propios)
+        libres = [mm for mm in sorted(cam) if mm > ult_p]
+        if libres:
+            anclas = [((ult_p - libres[0]).n, np.log(cam[ult_p]))]
+            for y in sorted({mm.year for mm in libres}):
+                z = [mm for mm in libres if mm.year == y]
+                anclas.append((np.mean([(mm - libres[0]).n for mm in z]), np.mean([np.log(cam[mm]) for mm in z])))
+            xs, ys = np.array([a for a, _ in anclas]), np.array([b for _, b in anclas])
+            pend = (ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+            lin = {mm: (np.interp((mm - libres[0]).n, xs, ys) if (mm - libres[0]).n <= xs[-1]
+                        else ys[-1] + pend * ((mm - libres[0]).n - xs[-1])) for mm in libres}
+            for y in sorted({mm.year for mm in libres}):
+                z = [mm for mm in libres if mm.year == y]
+                corr = (sum(np.log(cam[mm]) for mm in z) - sum(lin[mm] for mm in z)) / len(z)
+                for mm in z:
+                    cam[mm] = np.exp(lin[mm] + corr)
         anio = (f_anio(t_hoy.year) - 1) * 100
         p24 = (np.prod([cam[t_hoy + j] for j in range(13, 25)]) - 1) * 100
         largos = [("12m", "12m", i12), ("año0", str(t_hoy.year), anio), ("año1", str(t_hoy.year + 1), (f_anio(t_hoy.year + 1) - 1) * 100),

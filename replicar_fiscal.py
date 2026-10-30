@@ -7,7 +7,13 @@
 # Método (sin REM): resultado = conocido del año + Σ meses que faltan de (ingresos − gastos primarios), cada uno igual al
 # mismo mes del año anterior × (1 + g), con g = crecimiento interanual de los últimos 6 meses conocidos (por separado
 # para ingresos y gastos). Año siguiente: los 12 meses del año en curso (pronosticados) × (1 + g).
-#   I-fiscal   : (desde 18-oct-2026) mezcla de la META oficial vigente (datos\metas_fiscales.csv: Presupuesto / FMI /
+#   I-fiscal (PUBLICADO, desde el 30-oct-2026, OK de Marcos) = "partidas", sin meta: cada mes que falta = mismo mes del año
+#                anterior × crecimiento de su base. IVA, Ganancias, Débitos y créditos y resto de ingresos: (1 + inflación
+#                interanual) × (1 + PIB real del año); Seguridad social: (1 + inflación interanual); Derechos de exportación:
+#                tipo de cambio / el de un año antes; gasto indexado (jubilaciones, asignaciones, pensiones): IPC(m−2)/IPC(m−14);
+#                resto del gasto: (1 + inflación interanual). Insumos macro = medianas del último REM (meses + anual).
+#                Prueba en probar_fiscal_partidas.py. Lo de abajo (con meta) queda como backtest y referencia.
+#   I con meta : (18 al 30-oct-2026) mezcla de la META oficial vigente (datos\metas_fiscales.csv: Presupuesto / FMI /
 #                anuncios, con la fecha en que se conoció) y la proyección "I sin meta", pesando la meta por la parte
 #                del año que falta: I = k/12·(I sin meta) + (1 − k/12)·meta, con k = meses ya publicados del año.
 #                Sin meta conocida (p. ej. el año siguiente antes del Presupuesto de septiembre), I = I sin meta.
@@ -102,6 +108,86 @@ def huber(X, y, x0):
     except Exception:
         b = np.linalg.lstsq(Xc, y, rcond=None)[0]
     return float(np.r_[1, x0] @ b)
+
+
+IDX = ["jubilaciones_pensiones_contributivas", "asignacion_familiares_hijo", "pensiones_no_contributivas"]
+ING_P = ["iva", "gan", "dyc", "ss", "dex", "resto_ing"]
+GAS_P = ["idx", "resto_gas"]
+
+
+def leer_partidas(archivo):
+    """IMIG por partida (millones de $): 6 líneas de ingresos y 2 de gasto primario."""
+    d = pd.read_csv(COPIAS / archivo)
+    d.index = pd.PeriodIndex(pd.to_datetime(d["indice_tiempo"]), freq="M")
+    ing = d[list(d.columns[1:d.columns.get_loc("ingresos_capital") + 1])].sum(axis=1)
+    P = pd.DataFrame({"iva": d["iva_neto_reintegros"], "gan": d["ganancias"], "dyc": d["debitos_creditos"],
+                      "ss": d["aportes_contribuciones_seguridad_social"], "dex": d["derechos_exportacion"]})
+    P["resto_ing"] = ing - P.sum(axis=1)
+    P["idx"] = d[IDX].sum(axis=1)
+    P["resto_gas"] = ing - d["resultado_primario"] - P["idx"]
+    return P.dropna()
+
+
+def camino(real, ult, rem_mens, anual, es_tasa):
+    """Serie mensual: real hasta ult; medianas mensuales del REM después; los meses sin dato se completan en forma geométrica
+    para cerrar con el anual (IPC: variación dic/dic; tipo de cambio: promedio de diciembre)."""
+    s = real[real.index <= ult].copy()
+    for a in (ult.year, ult.year + 1, ult.year + 2):
+        fin = pd.Period(f"{a}-12", "M")
+        if fin <= ult:
+            continue
+        meses = pd.period_range(max(ult + 1, pd.Period(f"{a}-01", "M")), fin, freq="M")
+        if es_tasa:
+            dic0 = s.get(pd.Period(f"{a - 1}-12", "M"))
+            conoc = [m for m in meses if m in rem_mens.index]
+            fijo = np.prod([1 + rem_mens[m] / 100 for m in conoc])
+            falta = [m for m in meses if m not in rem_mens.index]
+            if a in anual.index and dic0 is not None and falta:
+                ya = s[s.index.year == a]
+                base = (ya.iloc[-1] / dic0) if len(ya) else 1.0
+                rr = ((1 + anual[a] / 100) / (base * fijo)) ** (1 / len(falta)) - 1
+            else:
+                rr = rem_mens[conoc[-1]] / 100 if conoc else 0.02
+            for m in meses:
+                s[m] = s[m - 1] * (1 + (rem_mens[m] / 100 if m in rem_mens.index else rr))
+        else:
+            ancla = {m: v for m, v in rem_mens.items() if m in meses}
+            if a in anual.index:
+                ancla.setdefault(fin, anual[a])
+            prev = s.index.max()
+            for m in sorted(ancla):
+                n = (m - prev).n
+                g = (ancla[m] / s[prev]) ** (1 / n)
+                for j in range(1, n + 1):
+                    s[prev + j] = s[prev] * g ** j
+                prev = m
+            for m in meses:
+                if m not in s.index:
+                    s[m] = s[m - 1]
+    return s.sort_index()
+
+
+def proyectar_partidas(P, ipc_real, tc_real, q, t):
+    """Resultado por partida, meses hasta t.year+1 (millones de $). q = filas del REM usadas como insumo macro."""
+    ult = t - 1
+    def rem(var, tipo):
+        z = q[(q["variable_std"] == var) & (q["tipo_periodo"] == tipo)]
+        if tipo == "fecha":
+            return pd.Series(z["mediana"].values, index=pd.to_datetime(z["periodo_original"]).dt.to_period("M")).groupby(level=0).mean()
+        z = z.assign(a=pd.to_numeric(z["periodo_original"], errors="coerce")).dropna(subset=["a"])
+        return pd.Series(z["mediana"].values, index=z["a"].astype(int)).groupby(level=0).mean()
+    ipc = camino(ipc_real, ult, rem("ipc_general", "fecha"), rem("ipc_general", "anio"), True)
+    tc = camino(tc_real, ult, rem("tipo_cambio", "fecha"), rem("tipo_cambio", "anio"), False)
+    gpib = rem("pib", "anio")
+    M = P[P.index <= ult].copy()
+    for m in pd.period_range(ult + 1, f"{t.year + 1}-12", freq="M"):
+        b = M.loc[m - 12]
+        pi = ipc[m] / ipc[m - 12]
+        g = 1 + gpib.get(m.year, 0) / 100
+        M.loc[m] = {"iva": b.iva * pi * g, "gan": b.gan * pi * g, "dyc": b.dyc * pi * g, "resto_ing": b.resto_ing * pi * g,
+                    "ss": b.ss * pi, "dex": b.dex * tc[m] / tc[m - 12],
+                    "idx": b.idx * ipc[m - 2] / ipc[m - 14], "resto_gas": b.resto_gas * pi}
+    return M
 
 
 def main():
@@ -218,21 +304,45 @@ def main():
     c_i = proyectar(M, tt, p, p)
     c_p = proyectar(M, tt, gi, gg)
     ra = g[g["origen"] == g["origen"].max()].set_index("anio")["rem"]
+    # I-fiscal por partidas (desde el 30-oct-2026, OK de Marcos): insumos macro = medianas del último REM
+    b = pd.read_parquet(C / "bcra_series_mensual.parquet")
+    b = b[(b["serie"] == "tc_mayorista_a3500") & (b["dias"] >= 10)]
+    tc_real = pd.Series(b["promedio"].values, index=pd.to_datetime(b["mes"]).dt.to_period("M"))
+    r["origen"] = pd.to_datetime(r["mes_relevamiento"]).dt.to_period("M")
+    q_rem = r[r["origen"] == r["origen"].max()]
+    Mp = proyectar_partidas(leer_partidas(archivo), ind, tc_real, q_rem, tt)
     L.append(f"PRONÓSTICO DE HOY (IMIG hasta {ult}; ingresos {gi * 100:+.1f}% y gastos {gg * 100:+.1f}% interanual, últimos {K} meses; IPC {p * 100:.1f}% ia; "
              f"REM de referencia: {g['origen'].max()}):")
     L.append(f"   {'año':6}{'REM ant.':>10}{'I':>10}{'sin meta':>10}{'meta':>8}{'(% PIB) REM':>13}{'I':>8}   miles de millones de $")
     reg = []
     for a in sorted(c_i):
         esc = escala(a) / 100 / 1000
-        mv = meta_vigente(mt, tt, a)                         # la meta conocida HOY (antes usaba la fecha del último REM; 30-oct-2026)
-        kk = ult.month if a == ult.year else 0              # meses publicados del año
+        mv = meta_vigente(mt, tt, a)                         # la meta conocida HOY (queda solo como referencia)
         sin_meta = c_i[a]
-        if pd.notna(mv):
-            c_i[a] = (kk / 12 * sin_meta / 1000 / esc + (1 - kk / 12) * mv) * esc * 1000
+        z = Mp[Mp.index.year == a]
+        c_i[a] = z[ING_P].sum().sum() - z[GAS_P].sum().sum()    # I = partidas (sin meta)
         L.append(f"   {a:<6}{ra.get(a, np.nan):10.0f}{c_i[a] / 1000:10.0f}{sin_meta / 1000:10.0f}{mv:8.2f}"
                  f"{ra.get(a, np.nan) / esc:13.2f}{c_i[a] / 1000 / esc:8.2f}")
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "imig_hasta": str(ult),
                     "anio": a, "I": c_i[a] / 1000, "I_sin_meta": sin_meta / 1000, "meta_pct_pib": mv, "rem_anterior": ra.get(a, np.nan)})
+    # el último relevamiento del backtest muestra el pronóstico publicado (partidas), no el modelo con meta (30-oct-2026, Marcos)
+    ul = X["origen"] == X["origen"].max()
+    for a in c_i:
+        X.loc[ul & (X["anio"] == a), "I"] = c_i[a] / 1000
+    X.loc[ul, "I_pib"] = X.loc[ul, "I"] / X.loc[ul, "esc"]
+    X.to_csv(C / "replica_fiscal.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
+    NOM = {"iva": "IVA", "gan": "Ganancias", "dyc": "Débitos y créditos", "ss": "Seguridad social", "dex": "Derechos de exportación",
+           "resto_ing": "Resto de ingresos", "ING": "INGRESOS TOTALES", "idx": "Gasto indexado (jubil., AUH, pensiones)",
+           "resto_gas": "Resto del gasto primario", "GAS": "GASTO PRIMARIO", "RES": "RESULTADO PRIMARIO"}
+    anios = [ult.year - 1] + sorted(c_i)
+    est = pd.DataFrame({a: Mp[Mp.index.year == a].sum() for a in anios}) / 1000
+    est.loc["ING"] = est.loc[ING_P].sum()
+    est.loc["GAS"] = est.loc[GAS_P].sum()
+    est.loc["RES"] = est.loc["ING"] - est.loc["GAS"]
+    L += ["", f"ESTADO DE RESULTADOS (miles de millones de $ | % del PIB; {ult.year - 1} real, {ult.year} real hasta {ult} + proyección)",
+          f"   {'':42}" + "".join(f"{a:>20}" for a in anios)]
+    for c in ING_P + ["ING"] + GAS_P + ["GAS", "RES"]:
+        L.append(f"   {NOM[c]:42}" + "".join(f"{est.loc[c, a]:12,.0f}{est.loc[c, a] / (escala(a) / 100 / 1000):7.2f}%" for a in anios))
     pr = C / "registro_fiscal.csv"
     nuevo = pd.DataFrame(reg)
     if pr.exists():                                       # control: no mezclar columnas distintas bajo un mismo encabezado

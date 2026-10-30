@@ -132,6 +132,20 @@ def main():
                           "real": u_all.get(q, np.nan), "I_est": est[q], "I_okun": ok[q], "I": est[q], "I_prom": (est[q] + ok[q]) / 2,
                           "okun_c": c, "okun_b": b, "emae_ia": g_now, "du_ult": du_ult})
     X = pd.DataFrame(filas)
+    # IV trimestre del año siguiente (30-oct-2026, Marcos): nuestro IV trimestre anterior + el cambio que espera el REM anterior
+    # entre los dos IV trimestres (REM del último relevamiento antes de t; sin él, queda "se queda").
+    ra = g[g["tipo"] == "año"].groupby(["origen", "obj"])["mediana"].mean()
+    for i, x in X[X["etiqueta"].str.startswith("año+")].iterrows():
+        q = pd.Period(x["objetivo"], "Q")
+        prev = [o for o in ra.index.get_level_values(0).unique() if o < x["origen"]]
+        if not prev:
+            continue
+        o = max(prev)
+        base = X[(X["origen"] == x["origen"]) & (X["objetivo"] == str(q - 4))]["I"]
+        base = base.iloc[0] if len(base) else u_all.get(q - 4, np.nan)
+        cambio = ra.get((o, q), np.nan) - ra.get((o, q - 4), np.nan)
+        if pd.notna(base) and pd.notna(cambio):
+            X.loc[i, "I"] = base + cambio
     X["y"] = X["rem"] - X["I_est"]
     X["gap"] = X["I_okun"] - X["I_est"]
     COLS = ["gap", "du_ult"]

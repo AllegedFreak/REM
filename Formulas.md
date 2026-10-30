@@ -46,6 +46,9 @@ Convenciones:
           40%, más baja que el año anterior y resultado fiscal del gobierno general >= 0 (FMI, WEO, 1980 al último año ocurrido)
     año siguiente (k=1) y año +2 (k=2) = (1 + año en curso)^{r_k} − 1
     meses sin pronóstico propio = tasa mensual constante dentro de cada año, la que cierra el año en su valor
+    (general G, desde el 30-oct-2026) bajada gradual: log(1+π_m) sobre una línea que une el último mes con pronóstico propio
+          con el promedio de lo que falta de cada año (en el centro de esos meses), misma pendiente después; cada año se
+          corre en paralelo para conservar su total dic/dic. La núcleo sigue con tasa constante.
     próx. 24 meses = inflación del segundo año (t+13 a t+24, definición del BCRA) = producto de ese camino mensual
 
 **Próximos 12 meses:** Huber en logaritmos: log(1+I12) ~ inf12 + ei_prom_l + fut12, donde inf12 = 100·log(IPC t-1 / IPC t-13),
@@ -110,6 +113,7 @@ Decidido el 30-oct-2026 por coherencia (la prueba no distingue entre 0%, promedi
     estacionalidad(q) = promedio, en los años completos sin pandemia (se excluyen II-2020 a I-2021 y todo 2020),
                         del desvío de la tasa del trimestre q respecto del promedio de su año; centrada en 0
     I(Q) = último dato − estacionalidad(trimestre del último dato) + estacionalidad(trimestre de Q)
+    IV trim. del año siguiente (desde el 30-oct-2026) = I(IV trim. anterior) + [REM anterior(IV trim. siguiente) − REM anterior(IV trim. en curso)]
 
 Fuente: INDEC, EPH (`desempleo.parquet`). "Año" del REM = IV trimestre. Decidido el 28-oct-2026.
 **Verificación (30-oct-2026):** recalculado 7,34 / 7,03 / 8,00 (III-26, IV-26, I-27), idéntico al publicado. Último dato
@@ -131,6 +135,22 @@ Fuente: BCRA API v4 id 44 ("Tasa de interés TAMAR de bancos privados", TNA; el 
 pedía BADLAR (id 7). **Verificación:** r_now 24,25% recalculado (16 días de octubre).
 
 ## 8. Resultado primario del SPN (año calendario, billones de $) — "I-fiscal"
+
+**PUBLICADO desde el 30-oct-2026 (OK de Marcos): "partidas", sin meta.**
+
+    mes que falta m (millones de $) = mismo mes del año anterior × crecimiento de su base:
+      IVA, Ganancias, Débitos y créditos, resto de ingresos : (IPC_m / IPC_m−12) × (1 + PIB real del año)
+      Seguridad social                                       : IPC_m / IPC_m−12
+      Derechos de exportación                                : TC_m / TC_m−12            (A3500, promedio mensual)
+      Gasto indexado (jubilaciones, AUH, pensiones no contr.) : IPC_m−2 / IPC_m−14        (movilidad con 2 meses de rezago)
+      Resto del gasto primario                               : IPC_m / IPC_m−12          (constante en términos reales)
+    resultado del año = meses publicados del IMIG + Σ (ingresos − gastos) de los meses proyectados
+    IPC y TC: reales hasta el último mes; después, medianas mensuales del último REM, completando los meses sin dato en
+    forma geométrica para cerrar con el anual (IPC dic/dic; TC promedio de diciembre). PIB real: mediana anual del REM.
+    Backtest (probar_fiscal_partidas.py, relevamientos ene-24 a nov-25, error medio % PIB): partidas+meta 1,46 vs con meta
+    1,76; partidas solo 2,46 (el cambio de régimen de 2024 no lo ve ningún modelo; REM 0,34).
+
+Anterior (18 al 30-oct-2026), queda como referencia en el informe:
 
     proyección sin meta: meses publicados del IMIG + meses que faltan = mismo mes del año anterior × (1 + inflación
                           interanual del último IPC), ingresos y gastos por separado

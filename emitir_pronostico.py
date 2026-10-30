@@ -87,7 +87,7 @@ def fmt(v, d, pre="", suf=""):
     return f"{'−' if v < 0 else ''}{pre}{txt}{suf}"
 
 
-FORMATO = {"inflacion": (2, "", "%"), "dolar": (0, "$", ""), "pib": (2, "", "%"), "tasa": (2, "", "%"), "fiscal": (1, "B$ ", ""),
+FORMATO = {"inflacion": (2, "", "%"), "dolar": (0, "$", ""), "pib": (2, "", "%"), "tasa": (2, "", "%"), "fiscal": (0, "$ ", " mil millones"),
            "exportaciones": (0, "", ""), "importaciones": (0, "", ""), "desempleo": (1, "", "%")}
 
 
@@ -170,7 +170,12 @@ def destacados(tarjetas):
             out.append((f"Dólar dic-{str(f['periodo'])[7:11]}" if str(f["periodo"]).startswith("Fin de") else f"Dólar {per_txt(f['periodo'])}",
                         fmt(f["nuestro"], d, pre, suf)))
             continue
-        f = t["filas"][idx]
+        if idx == -1:                                     # la fila de 12 meses por su nombre (la última es la de 24 meses; 30-oct-2026)
+            f = next((x for x in t["filas"] if "12 meses" in str(x["periodo"])), None)
+            if f is None:
+                continue
+        else:
+            f = t["filas"][idx]
         nombre = {"inflacion": "Inflación", "pib": "PIB", "tasa": "TAMAR", "fiscal": "Resultado primario"}[clave]
         out.append((etq or f"{nombre} {per_txt(f['periodo'])}", fmt(f["nuestro"], d, pre, suf)))
     return out
@@ -227,7 +232,7 @@ def sitio_publicado():
         return False
 
 
-def emitir(prueba=False):
+def emitir(prueba=False, todo=False):
     import publicar_web
     from sello_ots import sellar
     hoy = pd.Timestamp.now()
@@ -235,7 +240,12 @@ def emitir(prueba=False):
     reg = registro()
     n = 0 if prueba else len(reg) + 1
     tarjetas = publicar_web.pronosticos()
-    tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel) and t.get("sellar", True)]   # PIB anual: no se sella (Marcos, 30-oct-2026)
+    tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel) and (todo or t.get("sellar", True))]   # PIB anual y núcleo: no se sellan hasta que Marcos diga
+    # (--prueba --todo: muestra cómo quedaría con todo, sin sellar ni registrar)
+    for t in tarjetas:                                   # resultado primario en miles de millones de $, como lo pide el REM (30-oct-2026)
+        if t["clave"] == "fiscal":
+            t["unidad"] = "miles de millones de $, año calendario"
+            t["filas"] = [dict(f, nuestro=f["nuestro"] * 1000, rem=f["rem"] * 1000) for f in t["filas"]]
     if not tarjetas:
         raise RuntimeError(f"no hay pronósticos registrados para el relevamiento {rel}")
     registrado = max(str(t["corrida"]) for t in tarjetas)
@@ -322,7 +332,7 @@ def main():
             print(f"Guardado {col} del pronóstico de {mes}: {url}")
             return
     if "--prueba" in args:
-        fila, carpeta = emitir(prueba=True)
+        fila, carpeta = emitir(prueba=True, todo="--todo" in args)
         print(f"Prueba armada en {carpeta}\n\n{fila['post_texto']}\n\n({len(fila['post_texto'])} caracteres)")
         return
     nuevo = None
