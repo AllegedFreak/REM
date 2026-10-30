@@ -29,7 +29,15 @@ except Exception:
 C = Path(__file__).resolve().parent / "datos"
 MIN = 24
 H = range(1, 7)
-CAMBIO = pd.Period("2024-12", "M")          # desde este relevamiento el REM pide TAMAR (antes BADLAR)
+CAMBIO = pd.Period("2024-12", "M")
+# desde CAMBIO el REM pide TAMAR (antes BADLAR)
+# 12 meses y años (30-oct-2026, Marcos: "usá la inflación para calcular la TAMAR como pide el REM"): relación de Fisher.
+# TAMAR(m) = (1 + inflación esperada de m) × (1 + tasa real esperada hoy) − 1, en TEM, llevada a TNA × 365/30.
+# Inflación de m = camino mensual de replicar_rem.py (I hasta t+6 y después la clase de referencia; datos\camino_inflacion.csv).
+# Tasa real esperada hoy = TAMAR del mes (TEM) contra nuestra inflación del mes siguiente. La ex post de 12 meses (−0,05%
+# mensual) se descartó: muy inestable (oct-2025 +1,8% por las elecciones, mar-2026 −1,0%). Para comparar queda el modelo
+# anterior (Huber sobre el forward de los futuros; plazos_largos()).
+REGISTRAR_LARGOS = True
 
 
 CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
@@ -117,6 +125,45 @@ def lecap(lic, t):
     larga = u.loc[u["dias"] > 150, "tna_corte"].median()
     edad = (t - u["liquidacion"].max().to_period("M")).n
     return corta, larga, edad
+
+
+def plazos_largos(tasas, f, nuc):
+    """Lo que el REM pide además de los meses (30-oct-2026; definiciones de la nota metodológica del BCRA, "Consideraciones
+    del REM"): "próx. 12 meses" = tasa promedio del mes t+12; "año" = tasa promedio de DICIEMBRE de ese año (el del año en
+    curso coincide con dic). Mismo modelo que A (tasa del mes hasta el 25 + Huber de REM − tasa sobre forward − tasa, cambio
+    del mes y tasa real), uno por grupo: '12m', 'dic0' (diciembre del año en curso) y 'dic1' (del siguiente). El forward
+    llega hasta 12 meses (más allá se repite el último). BADLAR hasta nov-2024 y TAMAR desde dic-2024, cada uno contra su tasa."""
+    r = pd.read_parquet(C / "rem_normalizada.parquet")
+    r = r[r["variable_std"].isin(["tasa_badlar", "tasa_tamar"]) & r["tipo_periodo"].isin(["proximos_meses", "anio"])].copy()
+    r["origen"] = pd.to_datetime(r["mes_relevamiento"]).dt.to_period("M")
+    r["serie"] = np.where(r["variable_std"] == "tasa_tamar", "tamar_tna", "badlar_tna")
+    anio = pd.to_numeric(r["periodo_original"], errors="coerce")
+    r["mes"] = [o + 12 if tp == "proximos_meses" else pd.Period(f"{int(a)}-12", "M")
+                for o, tp, a in zip(r["origen"], r["tipo_periodo"], anio)]
+    r["grupo"] = ["12m" if tp == "proximos_meses" else ("dic0" if m.year == o.year else ("dic1" if m.year == o.year + 1 else None))
+                  for o, tp, m in zip(r["origen"], r["tipo_periodo"], r["mes"])]
+    r = r.dropna(subset=["grupo"]).groupby(["origen", "serie", "grupo", "mes"]).agg(
+        rem=("mediana", "mean"), p10=("percentil_10", "mean"), p90=("percentil_90", "mean")).reset_index()
+    filas = []
+    for _, x in r.iterrows():
+        o, s = x["origen"], tasas[x["serie"]]
+        r_now = prom_mes(s, o, 25, 8)
+        nuc3 = nuc[(nuc.index <= o - 1) & (nuc.index >= o - 3)]
+        h = (x["mes"] - o).n
+        filas.append({**x.to_dict(), "h": h, "r_now": r_now, "dr": r_now - prom_mes(s, o - 1),
+                      "real_rate": r_now - nuc3.mean() * 12 if len(nuc3) == 3 else np.nan,
+                      "fwd_gap": forwards(f, o).get(min(max(h, 1), 12), np.nan) - r_now, "real": prom_mes(s, x["mes"])})
+    Z = pd.DataFrame(filas).sort_values(["grupo", "origen"]).reset_index(drop=True)
+    cols = ["fwd_gap", "dr", "real_rate"]
+    Z["dif_rem"] = Z["rem"] - Z["r_now"]
+    Z["A"] = np.nan
+    for gr, q in Z.groupby("grupo"):
+        for i, row in q.iterrows():
+            tr = q[q["origen"] < row["origen"]].dropna(subset=cols + ["dif_rem"])
+            if len(tr) >= MIN and row[cols].notna().all():
+                Z.loc[i, "A"] = row["r_now"] + huber(tr[cols].values, tr["dif_rem"].values, row[cols].values.astype(float))
+    Z.to_csv(C / "replica_tasa_largo.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
+    return Z, cols
 
 
 def main():
@@ -232,6 +279,42 @@ def main():
         L.append(f"   {str(m):9}{ra:9.2f}{r_now:8.2f}{a:8.2f}{fw.get(h, np.nan):9.2f}")
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": h,
                     "se_queda": r_now, "A": a, "forward": fw.get(h, np.nan), "rem_anterior": ra, "provisorio": hasta != "hasta el 25"})
+    # plazos largos: próx. 12 meses (h=12) y diciembre del año en curso (h=100) y del siguiente (h=101), como en el dólar
+    Z, cols = plazos_largos(tasas, f, nuc)
+    L += ["", "PLAZOS LARGOS (próx. 12 meses = mes t+12; año = promedio de diciembre). Errores en pp de TNA, tiempo real:",
+          f"   {'grupo':6}{'período':>12}{'dist. REM A':>12}{'error A':>9}{'error REM':>10}{'n real':>7}{'P10-P90 A':>11}"]
+    for per, mk in (("2020-24", Z["origen"] < CAMBIO), ("2025-26", Z["origen"] >= CAMBIO)):
+        for gr in ("12m", "dic0", "dic1"):
+            z = Z[mk & (Z["grupo"] == gr)].dropna(subset=["A", "rem"])
+            zr = z.dropna(subset=["real"])
+            if not len(z):
+                continue
+            L.append(f"   {gr:6}{per:>12}{(z.A - z.rem).abs().mean():12.2f}{(zr.A - zr.real).abs().mean():9.2f}"
+                     f"{(zr.rem - zr.real).abs().mean():10.2f}{len(zr):7d}{((z.A >= z.p10) & (z.A <= z.p90)).mean() * 100:10.0f}%")
+    ref = Z[Z["origen"] == Z["origen"].max()].set_index("grupo")["rem"]
+    a_mes = {x["mes"]: x["A"] for x in reg}
+    cam = pd.read_csv(C / "camino_inflacion.csv", encoding="utf-8-sig") if (C / "camino_inflacion.csv").exists() else pd.DataFrame()
+    cam = cam[cam["relevamiento"] == str(t)].set_index("mes")["inflacion_mensual"] if len(cam) else pd.Series(dtype=float)
+    tem_now = r_now * 30 / 365 / 100
+    r_real = (1 + tem_now) / (1 + cam.get(str(t + 1), np.nan) / 100) - 1          # tasa real esperada hoy (mensual)
+    L.append(f"   Fisher: TAMAR de hoy {r_now:.2f}% TNA ({tem_now * 100:.2f}% TEM), inflación esperada {t + 1} "
+             f"{cam.get(str(t + 1), np.nan):.2f}% -> tasa real esperada {r_real * 100:+.2f}% mensual")
+    for gr, hcod, m in (("12m", 12, t + 12), ("dic0", 100, pd.Period(f"{t.year}-12", "M")), ("dic1", 101, pd.Period(f"{t.year + 1}-12", "M"))):
+        q = Z[Z["grupo"] == gr].dropna(subset=cols + ["dif_rem"])
+        hh = min(max((m - t).n, 1), 12)
+        x0 = np.array([fw.get(hh, np.nan) - r_now, row["dr"], row["real_rate"]], float)
+        a_viejo = r_now + huber(q[cols].values, q["dif_rem"].values, x0) if not np.isnan(x0).any() and len(q) >= MIN else np.nan
+        if gr == "dic0" and str(m) in a_mes:       # el año en curso es el mismo diciembre ya pronosticado como mes
+            a = a_mes[str(m)]
+        else:
+            a = ((1 + cam.get(str(m), np.nan) / 100) * (1 + r_real) - 1) * 365 / 30 * 100
+        L.append(f"   hoy {gr:5} {str(m):9} REM ant. {ref.get(gr, np.nan):6.2f} | Fisher {a:6.2f} | modelo anterior {a_viejo:6.2f}"
+                 f" | inflación del mes {cam.get(str(m), np.nan):.2f}%")
+        if not REGISTRAR_LARGOS:
+            continue
+        reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": hcod, "se_queda": r_now, "A": a,
+                    "forward": fw.get(min(max((m - t).n, 1), 12), np.nan), "rem_anterior": ref.get(gr, np.nan),
+                    "provisorio": hasta != "hasta el 25"})
     p = C / "registro_tasa.csv"
     pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")
     L.append("ALERTAS: ninguna. Todo en orden.")

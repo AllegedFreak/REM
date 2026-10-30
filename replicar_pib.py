@@ -32,9 +32,13 @@ except Exception:
 C = Path(__file__).resolve().parent / "datos"
 MIN = 20
 COLS = ["nc_ult", "nc_p3", "nc_tc", "meses_conocidos", "pib_ult", "emae_mm"]   # para A-PIB (imitar al REM)
-# I-PIB (nuestro pronóstico del PIB, 17-oct-2026) = EMAE completando los meses que faltan con el PROMEDIO DE 3 MESES
-# (trimestre anterior) o con la TENDENCIA-CICLO (en curso y siguientes); sin regresión. En 2025-26 le gana al REM contra
-# el primer dato: anterior 0,26 vs 0,42, en curso 0,49 vs 0,56, siguiente 0,42 vs 0,61 pp.
+# I-PIB (nuestro pronóstico del PIB; 30-oct-2026, "camino coherente", decisión de Marcos) = EMAE con UN SOLO camino para
+# los meses que faltan, igual en todos los trimestres: arranca en el PROMEDIO DE LOS ÚLTIMOS 3 MESES y crece al ritmo de
+# los últimos 5 años de EMAE; en los trimestres sin ningún mes de EMAE, promedio con el REM anterior. Antes (17-oct)
+# completaba con p3 el trimestre anterior y con la tendencia-ciclo los demás: septiembre-2026 tenía dos valores y el
+# IV-2026 rebotaba de forma mecánica; I-2027 daba 0. Prueba en tiempo real (probar_pib_horizonte.py), error contra el
+# primer dato, 2025-26: anterior 0,26 / en curso 0,39 / siguiente 0,47 pp (REM del mes 0,42 / 0,56 / 0,61; p DM 0,04 /
+# 0,03 / 0,03). En 2016-24 el REM sigue siendo mejor (1,01 / 1,91 / 2,30 contra 0,56 / 1,47 / 1,95).
 
 
 CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
@@ -48,6 +52,12 @@ def huber(X, y, x0):
     except Exception:
         b = np.linalg.lstsq(Xc, y, rcond=None)[0]
     return float(np.r_[1, x0] @ b)
+
+
+def ritmo_mensual(desest, t):
+    """Crecimiento mensual de tendencia con el EMAE publicado al fin de t: promedio de 12 meses contra el de 5 años antes."""
+    dd = desest[desest.index <= t - 2].dropna()
+    return (dd.iloc[-12:].mean() / dd.iloc[-72:-60].mean()) ** (1 / 60) if len(dd) >= 72 else 1.0
 
 
 def camino_anual(V, R, t, g_lp):
@@ -73,7 +83,7 @@ def camino_anual(V, R, t, g_lp):
     return out
 
 
-def pib_anual(V, R, r, real_q, t_hoy):
+def pib_anual(V, R, r, real_q, t_hoy, desest):
     """PIB anual (var. % del promedio anual, desestacionalizado) armado desde los trimestres; contra el REM y el primer dato."""
     an = r[(r["variable_std"] == "pib") & (r["tipo_periodo"] == "anio")].copy()
     an["origen"] = pd.to_datetime(an["mes_relevamiento"]).dt.to_period("M")
@@ -93,7 +103,8 @@ def pib_anual(V, R, r, real_q, t_hoy):
     filas = []
     for t in sorted(an["origen"].unique()):
         hist = real_q[real_q.index <= V[V["version"] <= t]["Q"].max()] if (V["version"] <= t).any() else real_q.iloc[:0]
-        variantes = {"cero": 0.0, "prom20": hist.iloc[-20:].mean() if len(hist) >= 8 else 0.0}
+        variantes = {"cero": 0.0, "prom20": hist.iloc[-20:].mean() if len(hist) >= 8 else 0.0,
+                     "tend": (ritmo_mensual(desest, t) ** 3 - 1) * 100}   # el mismo ritmo que el camino de I-PIB
         caminos = {k: camino_anual(V, R, t, g) for k, g in variantes.items()}
         for _, x in an[an["origen"] == t].iterrows():
             y = int(x["anio"])
@@ -115,34 +126,47 @@ def pib_anual(V, R, r, real_q, t_hoy):
     etq = {0: "año en curso", 1: "año siguiente", 2: "año +2"}
     L = ["=== PIB ANUAL (var. % del promedio anual) ===",
          "I cero = trimestres publicados + I-PIB de los próximos trimestres + 0% después; I prom20 = después, el promedio de",
-         "los últimos 20 trimestres publicados; A = regresión sobre ambos que imita al REM. Real = primer dato del año.", ""]
+         "los últimos 20 trimestres publicados; I tend = después, el ritmo de 5 años del EMAE (el del camino de I-PIB);",
+         "A = regresión sobre I cero e I p20 que imita al REM. Real = primer dato del año. p DM = I cero / I tend contra el REM.", ""]
     for per, m in (("2016-2024", A["origen"] <= pd.Period("2024-12", "M")), ("2025-26", A["origen"] > pd.Period("2024-12", "M"))):
         q = A[m]
         L.append(f"== {per}")
-        L.append(f"   {'':14}{'distancia al REM':>32} | {'error contra el primer dato':>40}")
-        L.append(f"   {'':14}{'I cero':>8}{'I p20':>8}{'A':>8}{'n':>6} | {'I cero':>8}{'I p20':>8}{'A':>8}{'REM':>8}{'n':>6}{'p DM':>8}")
+        L.append(f"   {'':14}{'distancia al REM':>40} | {'error contra el primer dato':>48}")
+        L.append(f"   {'':14}{'I cero':>8}{'I p20':>8}{'I tend':>8}{'A':>8}{'n':>6} | {'I cero':>8}{'I p20':>8}{'I tend':>8}{'A':>8}"
+                 f"{'REM':>8}{'n':>6}{'p DM':>12}")
         for pos in sorted(q["pos"].unique()):
             z = q[q["pos"] == pos].dropna(subset=["A_anual"])
             zr = z.dropna(subset=["real"])
             if not len(z):
                 continue
             d = lambda c, ref, zz: (zz[c] - zz[ref]).abs().mean()
-            try:
-                p = diebold_mariano((zr.I_cero - zr.real).values, (zr.rem - zr.real).values, 12) if len(zr) > 6 else np.nan
-            except Exception:
-                p = np.nan
-            L.append(f"   {etq.get(pos, pos):14}{d('I_cero', 'rem', z):8.2f}{d('I_prom20', 'rem', z):8.2f}{d('A_anual', 'rem', z):8.2f}{len(z):6d} | "
-                     f"{d('I_cero', 'real', zr):8.2f}{d('I_prom20', 'real', zr):8.2f}{d('A_anual', 'real', zr):8.2f}{d('rem', 'real', zr):8.2f}"
-                     f"{len(zr):6d}{p:8.2f}")
+            ps = []
+            for c in ("I_cero", "I_tend"):
+                try:
+                    ps.append(diebold_mariano((zr[c] - zr.real).values, (zr.rem - zr.real).values, 12) if len(zr) > 6 else np.nan)
+                except Exception:
+                    ps.append(np.nan)
+            L.append(f"   {etq.get(pos, pos):14}{d('I_cero', 'rem', z):8.2f}{d('I_prom20', 'rem', z):8.2f}{d('I_tend', 'rem', z):8.2f}"
+                     f"{d('A_anual', 'rem', z):8.2f}{len(z):6d} | "
+                     f"{d('I_cero', 'real', zr):8.2f}{d('I_prom20', 'real', zr):8.2f}{d('I_tend', 'real', zr):8.2f}"
+                     f"{d('A_anual', 'real', zr):8.2f}{d('rem', 'real', zr):8.2f}{len(zr):6d}{ps[0]:6.2f}/{ps[1]:.2f}")
         L.append("")
     # hoy
     hist = real_q[real_q.index <= V[V["version"] <= t_hoy]["Q"].max()]
-    c0, c20 = camino_anual(V, R, t_hoy, 0.0), camino_anual(V, R, t_hoy, hist.iloc[-20:].mean())
-    L.append(f"PRONÓSTICO DE HOY (después de los trimestres de I-PIB: 0% o {hist.iloc[-20:].mean():+.2f}% por trimestre):")
-    L.append(f"   {'año':6}{'REM anterior':>13}{'I cero':>8}{'I p20':>8}")
+    gt = (ritmo_mensual(desest, t_hoy) ** 3 - 1) * 100
+    c0, c20, ct = (camino_anual(V, R, t_hoy, g) for g in (0.0, hist.iloc[-20:].mean(), gt))
+    L.append(f"PRONÓSTICO DE HOY (después de los trimestres de I-PIB: 0%, {hist.iloc[-20:].mean():+.2f}% o {gt:+.2f}% por trimestre):")
+    L.append(f"   {'año':6}{'REM anterior':>13}{'I cero':>8}{'I p20':>8}{'I tend':>8}")
     for y in sorted(c0):
         ra = an[(an["origen"] == an["origen"].max()) & (an["anio"] == y)]["rem"].mean()
-        L.append(f"   {y:<6}{ra:13.2f}{c0[y]:8.2f}{c20.get(y, np.nan):8.2f}")
+        L.append(f"   {y:<6}{ra:13.2f}{c0[y]:8.2f}{c20.get(y, np.nan):8.2f}{ct.get(y, np.nan):8.2f}")
+    # nuestro PIB anual = I tend (decisión de Marcos, 30-oct-2026: coherente con el camino trimestral; la prueba no distingue
+    # entre las tres variantes). Va al sitio solo como respuesta al REM; todavía NO se sella.
+    reg = [{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "anio": y, "I": ct[y],
+            "rem_anterior": an[(an["origen"] == an["origen"].max()) & (an["anio"] == y)]["rem"].mean()} for y in sorted(ct)]
+    if reg:
+        p = C / "registro_pib_anual.csv"
+        pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")
     return L
 
 
@@ -183,14 +207,24 @@ def main():
             ms = [q.asfreq("M", "s") + i for i in range(3)]
             return np.mean([d.get(m, nivel) if m <= ult_m else nivel for m in ms])
         nc = {f"nc_{k}": (prom_q(Q, v) / prom_q(Q - 1, v) - 1) * 100 for k, v in rellenos.items()}
+        gm = ritmo_mensual(desest, t)
+        def prom_coh(q):   # camino coherente: promedio de 3 meses y, desde ahí, crecimiento de tendencia
+            ms = [q.asfreq("M", "s") + i for i in range(3)]
+            return np.mean([d.get(m, np.nan) if m <= ult_m else rellenos["p3"] * gm ** (m - ult_m).n for m in ms])
+        nc["nc_coh"] = (prom_coh(Q) / prom_coh(Q - 1) - 1) * 100
         vers = V[V["version"] <= t]
         if vers.empty:
             return None
         uv = vers[vers["version"] == vers["version"].max()].dropna(subset=["g"])
         ms_q = [Q.asfreq("M", "s") + i for i in range(3)]
         k_ = (Q - t.asfreq("Q")).n
-        return {**nc, "emae_nc": nc["nc_p3"] if k_ < 0 else nc["nc_tc"], "meses_conocidos": sum(m <= ult_m for m in ms_q),
+        return {**nc, "emae_nc": nc["nc_coh"], "meses_conocidos": sum(m <= ult_m for m in ms_q),
                 "pib_ult": uv["g"].iloc[-1], "pib_ult_Q": uv["Q"].iloc[-1], "emae_mm": (d.iloc[-1] / d.iloc[-2] - 1) * 100}
+
+    def mezcla(v, meses, t, Q):
+        """Trimestre sin ningún mes de EMAE: promedio con el REM anterior (mediana del relevamiento t-1 para Q)."""
+        ra = g[(g["origen"] == t - 1) & (g["Q"] == Q)]["rem"].mean()
+        return (v + ra) / 2 if meses == 0 and not np.isnan(ra) else v
 
     filas = []
     for _, x in g.iterrows():
@@ -208,8 +242,7 @@ def main():
                    "emae_solo": row["emae_nc"]}
             if len(tr) >= MIN:
                 out["A_pib"] = huber(tr[COLS].values.astype(float), tr["rem"].values.astype(float), row[COLS].values.astype(float))
-            # I-PIB: solo trimestres cuyo primer dato ya estaba publicado en o
-            out["I_pib"] = row["emae_nc"]
+            out["I_pib"] = mezcla(row["emae_nc"], row["meses_conocidos"], o, row["Q"])
             res.append(out)
     R = pd.DataFrame(res)
     R.to_csv(C / "replica_pib.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
@@ -249,7 +282,7 @@ def main():
         k = (Q - t.asfreq("Q")).n
         q = X[(X["k"] == k)].dropna(subset=COLS + ["rem"])
         a = huber(q[COLS].values.astype(float), q["rem"].values.astype(float), np.array([f[c] for c in COLS], float)) if len(q) >= MIN else np.nan
-        i_ = f["emae_nc"]
+        i_ = mezcla(f["emae_nc"], f["meses_conocidos"], t, Q)
         rem_ant = g[(g["origen"] == t - 1) & (g["Q"] == Q)]["rem"].mean()
         hoy.append(f"   {str(Q):8} {rem_ant:12.2f} {f['nc_ult']:9.2f} {a:8.2f} {i_:8.2f}   (meses de EMAE conocidos: {f['meses_conocidos']})")
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "trimestre": str(Q),
@@ -259,7 +292,10 @@ def main():
         pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")
     L += [f"PRONÓSTICO DE HOY (último PIB publicado: {pub}, {V[V['version'] <= t].dropna(subset=['g']).sort_values(['version', 'Q']).iloc[-1]['g']:+.2f}%; "
           f"EMAE hasta {desest.index.max()}):", f"   {'trimestre':8} {'REM anterior':>12} {'EMAE últ.':>9} {'A-PIB':>8} {'I-PIB':>8}"] + hoy
-    L += [""] + pib_anual(V, R, r, real, t)
+    if not (R["origen"] == t).any():   # el relevamiento en curso todavía no está en R (30-oct-2026: el anual de hoy no los usaba)
+        R = pd.concat([R, pd.DataFrame([{"origen": t, "Q": pd.Period(x["trimestre"], "Q"), "I_pib": x["I_pib"]} for x in reg])],
+                      ignore_index=True)
+    L += [""] + pib_anual(V, R, r, real, t, desest)
     L.append("ALERTAS: ninguna. Todo en orden.")
     texto = "\n".join(L)
     print(texto)

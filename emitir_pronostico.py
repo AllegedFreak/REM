@@ -10,8 +10,10 @@
 # misma publicación cuando sale el REM y cuando sale el dato real. Un sello por mes, numerado, nunca se pisa.
 # Registro: datos\sellos\registro_sellos.csv (post_url, post_rem_url y post_real_url se completan con
 # --linkedin / --linkedin-rem / --linkedin-real).
-# Uso: py -3.13 emitir_pronostico.py [--aviso]       (en actualizar_todo: emite desde el primer día del relevamiento si no hay sello del mes;
-#                                                     siempre intenta completar los sellos de Bitcoin y del Archivo de Internet)
+# Uso: py -3.13 emitir_pronostico.py --emitir       (SOLO a mano, cuando Marcos y Claude deciden emitir, después de revisar todo;
+#                                                     la fecha está agendada. Decisión de Marcos, 30-oct-2026)
+#      py -3.13 emitir_pronostico.py [--aviso]       (en actualizar_todo: NO emite; solo completa los sellos de Bitcoin y del
+#                                                     Archivo de Internet de los ya emitidos)
 #      py -3.13 emitir_pronostico.py --prueba        (arma todo en datos\sellos\_prueba, sin numerar, sellar ni registrar)
 #      py -3.13 emitir_pronostico.py --linkedin AAAA-MM URL   (y --linkedin-rem / --linkedin-real)
 import hashlib
@@ -117,7 +119,7 @@ def html_pdf(n, rel, registrado, tarjetas, sha_csv):
                         f"<td class='num'>{fmt(f['rem'], d, pre, suf)}</td></tr>" for f in t["filas"])
         bloques.append(f"<div class='bloque'><h3>{t['titulo']}</h3><p class='uni'>{t['unidad']}</p>"
                        f"<table><thead><tr><th>Período</th><th class='num'>Datos Con Método</th><th class='num'>REM anterior*</th></tr></thead>"
-                       f"<tbody>{filas}</tbody></table><p class='mod'>{t['modelo']}</p></div>")
+                       f"<tbody>{filas}</tbody></table></div>")
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Pronóstico n.º {n} - {mes_txt(rel)}</title>
 <style>{CSS}
 @page{{size:A4;margin:14mm 12mm}} body{{background:#fff;font-size:11px}}
@@ -233,7 +235,7 @@ def emitir(prueba=False):
     reg = registro()
     n = 0 if prueba else len(reg) + 1
     tarjetas = publicar_web.pronosticos()
-    tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel)]
+    tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel) and t.get("sellar", True)]   # PIB anual: no se sella (Marcos, 30-oct-2026)
     if not tarjetas:
         raise RuntimeError(f"no hay pronósticos registrados para el relevamiento {rel}")
     registrado = max(str(t["corrida"]) for t in tarjetas)
@@ -243,7 +245,7 @@ def emitir(prueba=False):
     carpeta.mkdir(parents=True, exist_ok=True)
     nombre = f"pronostico_{rel}"
     filas = [{"variable": t["titulo"], "unidad": t["unidad"], "periodo": f["periodo"], "datos_con_metodo": f["nuestro"],
-              "rem_anterior": f["rem"], "registrado": t["corrida"], "relevamiento": str(rel), "modelo": t["modelo"]}
+              "rem_anterior": f["rem"], "registrado": t["corrida"], "relevamiento": str(rel)}   # sin la columna modelo (Marcos, 30-oct-2026)
              for t in tarjetas for f in t["filas"]]
     csv = carpeta / f"{nombre}.csv"
     pd.DataFrame(filas).to_csv(csv, index=False, encoding="utf-8-sig")

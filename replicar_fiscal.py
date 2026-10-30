@@ -224,7 +224,7 @@ def main():
     reg = []
     for a in sorted(c_i):
         esc = escala(a) / 100 / 1000
-        mv = meta_vigente(mt, t, a)
+        mv = meta_vigente(mt, tt, a)                         # la meta conocida HOY (antes usaba la fecha del último REM; 30-oct-2026)
         kk = ult.month if a == ult.year else 0              # meses publicados del año
         sin_meta = c_i[a]
         if pd.notna(mv):

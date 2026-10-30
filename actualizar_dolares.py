@@ -8,6 +8,10 @@
 #   D03 dato nuevo que cambia más de 25% contra el anterior
 #   D04 dato histórico modificado respecto de la corrida anterior
 #   D05 serie desactualizada (último dato hace más de 5 días)
+#   D07 fecha corrida: desde ~1-sep-2026 la fuente guarda cada cierre con la FECHA DEL DÍA SIGUIENTE (30-oct-2026: el
+#       sábado ya no repite al viernes, trae el cierre del viernes, y el lunes repite al domingo; lo mismo en mayorista,
+#       que contra el A3500 del BCRA confirma un día de corrimiento). Se detecta solo (corrimiento()) y se corrige:
+#       desde el primer sábado corrido cada dato pasa al día anterior; la semana del cambio queda marcada (no se usa)
 # Guarda datos/dolares.parquet (diario, días hábiles de mercado = días con A3500) y datos/dolares_mensual.parquet
 # (promedio mensual y brecha CCL; un mes con menos de 10 días válidos queda vacío y se guarda cuántos días tuvo).
 # Uso:
@@ -53,7 +57,9 @@ CONTROLES = {
     "D04": ("historico_modificado", "Un dato ya guardado cambió respecto de la corrida anterior"),
     "D05": ("serie_desactualizada", f"Último dato hace más de {DIAS_SIN_ACTUALIZAR} días"),
     "D06": ("fechas_perdidas", "Fechas guardadas que ya no vienen de la fuente (se conservan)"),
+    "D07": ("fecha_corrida", "La fuente guarda cada cierre con la fecha del día siguiente: se corrige (y la semana del cambio no se usa)"),
 }
+SEMANAS_CORRIDAS = 3   # semanas seguidas con el patrón de fin de semana corrido para dar por corrida la fuente
 
 
 class ErrorFuente(Exception):
@@ -73,6 +79,29 @@ def bajar(casa):
     except Exception:
         raise ErrorFuente(f"El formato de la respuesta de {casa} cambió. Pegale este mensaje a Claude.")
     return contenido, df
+
+
+def corrimiento(crudos):
+    """Prueba de fin de semana sobre CCL y MEP crudos (con sábados y domingos). Sin corrimiento, el sábado repite al viernes.
+    Con corrimiento, el sábado trae el cierre del viernes (distinto del registro del viernes) y el lunes repite al domingo.
+    Devuelve (corte, sabado_anterior) del tramo final de SEMANAS_CORRIDAS+ semanas corridas, o (None, None)."""
+    d1 = pd.Timedelta(days=1)
+    marcas = None
+    for casa in ("contadoconliqui", "bolsa"):
+        s = crudos[casa].set_index("fecha")["venta"]
+        m = {sab: (s[sab] != s[sab - d1], s[sab + 2 * d1] == s[sab + d1]) for sab in s.index[s.index.dayofweek == 5]
+             if {sab - d1, sab + d1, sab + 2 * d1} <= set(s.index)}
+        marcas = m if marcas is None else {k: (v[0] or marcas[k][0], v[1] and marcas[k][1]) for k, v in m.items() if k in marcas}
+    corrida = pd.Series({k: a and b for k, (a, b) in marcas.items()}).sort_index()
+    if corrida.empty or not corrida.iloc[-1]:
+        return None, None
+    inicio = len(corrida) - (~corrida[::-1]).cumsum().eq(0).sum()   # primer sábado del tramo final corrido
+    if len(corrida) - inicio < SEMANAS_CORRIDAS:
+        return None, None
+    corte = corrida.index[inicio]
+    # desde dónde no se sabe: el último sábado ANTERIOR con el patrón viejo claro (sábado = viernes y lunes distinto del domingo)
+    limpios = [k for k, (a, b) in marcas.items() if k < corte and not a and not b]
+    return corte, (max(limpios) if limpios else corte - pd.Timedelta(days=7))
 
 
 def rachas_congeladas(s):
@@ -123,18 +152,33 @@ def main():
         a3500 = bcra[bcra["serie"] == "tc_mayorista_a3500"].assign(fecha=lambda x: pd.to_datetime(x["fecha"])).set_index("fecha")["valor"]
         habiles = set(a3500.index)
         ultimo_bcra = a3500.index.max()
-        partes, copia = [], {}
-        for casa, nombre in CASAS.items():
+        partes, copia, crudos = [], {}, {}
+        for casa in CASAS:
             contenido, df = bajar(casa)
             copia[casa] = json.loads(contenido)
             df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
-            df = df.dropna(subset=["fecha", "venta"]).drop_duplicates("fecha", keep="last")
+            crudos[casa] = df.dropna(subset=["fecha", "venta"]).drop_duplicates("fecha", keep="last").sort_values("fecha")
+        corte, sab_ant = corrimiento(crudos)
+        dudosas = set()
+        marca_corr = CARPETA / "dolares_corrimiento.txt"   # avisa solo cuando el corrimiento aparece o cambia
+        texto_corr = (f"desde el {corte.date()} cada dato es del día anterior: corregido; "
+                      f"{(sab_ant + pd.Timedelta(days=1)).date()} a {(corte - pd.Timedelta(days=2)).date()} no se usan") if corte is not None else ""
+        if texto_corr != (marca_corr.read_text(encoding="utf-8") if marca_corr.exists() else ""):
+            if corte is not None:
+                alerta("D07", "todas", corte, texto_corr, historica=True)
+            marca_corr.write_text(texto_corr, encoding="utf-8")
+        for casa, nombre in CASAS.items():
+            df = crudos[casa].copy()
+            if corte is not None:
+                df.loc[df["fecha"] >= corte, "fecha"] -= pd.Timedelta(days=1)    # el sábado pasa a viernes, etc.
+                df = df.drop_duplicates("fecha", keep="last")                     # el viernes corregido reemplaza al original
+                dudosas = set(pd.date_range(sab_ant + pd.Timedelta(days=1), corte - pd.Timedelta(days=2)))
             de_mercado = df["fecha"].isin(habiles) | ((df["fecha"] > ultimo_bcra) & (df["fecha"].dt.weekday < 5))
             df = df[de_mercado & (df["fecha"] >= a3500.index.min())].sort_values("fecha")
             df["serie"] = nombre
             partes.append(df)
         d = pd.concat(partes, ignore_index=True)
-        d["congelado"] = False
+        d["congelado"] = d["fecha"].isin(dudosas)   # semana del cambio de fecha (D07): no se usa en la brecha ni en promedios
         for nombre, g in d.groupby("serie"):
             s = g.set_index("fecha")["venta"]
             malas = rachas_congeladas(s)
@@ -204,6 +248,8 @@ def main():
         ub = j.iloc[-1]
         informe.append(f"Brecha CCL vs A3500: {ub['brecha_ccl']:.1f}% ({j.index[-1].date()}); "
                        f"promedio del último mes completo: {mens['brecha_ccl'].dropna().iloc[-2]:.1f}%")
+        if texto_corr:
+            informe.append(f"Fecha corrida de la fuente (D07): {texto_corr}")
         informe.append("Archivos: datos\\dolares.parquet (diario) y datos\\dolares_mensual.parquet (promedio mensual y brecha)")
         informe.append("")
         informe.append("Controles:")

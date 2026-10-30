@@ -74,9 +74,9 @@ def ultimo_registro(nombre):
     # 12:13 en la misma corrida; con "== u" el sello n.º 1 salió sin exportaciones). Las corridas están a horas de distancia
     f = pd.to_datetime(d["fecha_corrida"])
     d = d[f >= f.max() - pd.Timedelta(minutes=15)]
-    if "variable" in d.columns:                     # si una variable quedó repetida, su fila más nueva
-        d = d.sort_values("fecha_corrida").drop_duplicates([c for c in ("variable", "periodo", "H", "h", "trimestre", "mes")
-                                                            if c in d.columns], keep="last")
+    claves = [c for c in ("variable", "periodo", "H", "h", "trimestre", "mes", "anio") if c in d.columns]
+    if claves:                                      # si algo quedó repetido (dos corridas a mano en 15 min), lo de la corrida
+        d = d[d["fecha_corrida"] == d.groupby(claves)["fecha_corrida"].transform("max")]   # más nueva de cada período
     return d.copy(), u
 
 
@@ -88,46 +88,81 @@ def rem_ultimo():
 # ---------------------------------------------------------------- 1) pronósticos de hoy
 def pronosticos():
     tarjetas = []
-    # inflación: nuestro pronóstico de la inflación (I) y el REM anterior por mes objetivo
-    i, f_i = ultimo_registro("inflacion")
+    # inflación: nuestro pronóstico de la inflación GENERAL (desde el 30-oct-2026, Marcos: G de replicar_general.py =
+    # desde abajo -núcleo N + regulados + estacionales- en m0-m2 e I desde m3; años, 12 y 24 meses sobre ese camino)
+    i, f_i = ultimo_registro("general")
+    i = i.rename(columns={"G": "pronostico_inflacion"})
     a, _ = ultimo_registro("pronosticos")
     if len(i):
         ra = a.set_index("H")["rem_anterior"] if len(a) else pd.Series(dtype=float)
+        # años (dic/dic) y próx. 24 meses (30-oct-2026): REM anterior = mediana del último REM publicado
+        r = pd.read_parquet(C / "rem_normalizada.parquet")
+        r = r[(r["variable_std"] == "ipc_general") & (r["mes_relevamiento"] == r["mes_relevamiento"].max())]
+        ra_anio = r[r["tipo_periodo"] == "anio"].assign(a=lambda z: z["periodo_original"].astype(str).str[:4]).groupby("a")["mediana"].mean()
+        ra_24 = r[(r["tipo_periodo"] == "proximos_meses") & (r["horizonte_meses"] == 24)]["mediana"].mean()
         filas = []
         for _, x in i.iterrows():
-            et = "Próx. 12 meses" if x["H"] == "12m" else x["objetivo"]
-            filas.append({"periodo": et, "nuestro": x["pronostico_inflacion"], "rem": ra.get(x["H"], np.nan)})
-        tarjetas.append({"clave": "inflacion", "titulo": "Inflación", "unidad": "% mensual (12 meses: % acumulado)",
-                         "modelo": "Inflación núcleo reciente + expectativas de los hogares (UTDT) + dólar esperado; en el mes en curso, precios de supermercados", "filas": filas, "corrida": f_i,
+            H = str(x["H"])
+            if H.startswith("año"):
+                et, rem = f"Año {x['objetivo']} (dic/dic)", ra_anio.get(str(x["objetivo"]), np.nan)
+            elif H == "24m":
+                et, rem = "Próx. 24 meses (2.º año)", ra_24
+            else:
+                et, rem = ("Próx. 12 meses" if H == "12m" else x["objetivo"]), ra.get(H, np.nan)
+            filas.append({"periodo": et, "nuestro": x["pronostico_inflacion"], "rem": rem})
+        tarjetas.append({"clave": "inflacion", "titulo": "Inflación", "unidad": "% mensual (12 y 24 meses y años: % acumulado)",
+                         "filas": filas, "corrida": f_i,
                          "relevamiento": i["relevamiento"].iloc[0]})
+    # inflación núcleo (30-oct-2026, Marcos: se publica porque el REM la pide; en el sitio sí, en el sello todavía no)
+    nu, f_nu = ultimo_registro("nucleo")
+    if len(nu):
+        filas = []
+        for _, x in nu.iterrows():
+            H = str(x["H"])
+            et = {"año": f"Año {x['objetivo']} (dic/dic)", "año1": f"Año {x['objetivo']} (dic/dic)", "año2": f"Año {x['objetivo']} (dic/dic)",
+                  "12m": "Próx. 12 meses", "24m": "Próx. 24 meses (2.º año)"}.get(H, x["objetivo"])
+            filas.append({"periodo": et, "nuestro": x["N"], "rem": x["rem_anterior"]})
+        tarjetas.append({"clave": "nucleo", "titulo": "Inflación núcleo", "unidad": "% mensual (12 y 24 meses y años: % acumulado)",
+                         "filas": filas, "sellar": False, "corrida": f_nu, "relevamiento": nu["relevamiento"].iloc[0]})
     # tipo de cambio
     t, f_t = ultimo_registro("tc")
     if len(t):
         et = lambda x: (f"Fin de {x['objetivo'][:4]} (dic)" if x["h"] in (100, 101) else "Próx. 12 meses" if x["h"] == 12 else x["objetivo"])
         filas = [{"periodo": et(x), "nuestro": x["A_dolar"], "rem": x["rem_anterior"]} for _, x in t.iterrows()]
         tarjetas.append({"clave": "dolar", "titulo": "Dólar mayorista (A3500)", "unidad": "$ por USD, promedio del mes",
-                         "modelo": "Futuros del CEM ajustados por el descuento típico del REM", "filas": filas,
+                         "filas": filas,
                          "corrida": f_t, "relevamiento": t["relevamiento"].iloc[0]})
     # PIB
     p, f_p = ultimo_registro("pib")
     if len(p):
         filas = [{"periodo": x["trimestre"].replace("Q", " T"), "nuestro": x["I_pib"], "rem": x["rem_anterior"]} for _, x in p.iterrows()]
         tarjetas.append({"clave": "pib", "titulo": "PIB trimestral", "unidad": "% contra el trimestre anterior, desestacionalizado",
-                         "modelo": "EMAE publicado + tendencia para los meses que faltan", "filas": filas,
+                         "filas": filas,
                          "corrida": f_p, "relevamiento": p["relevamiento"].iloc[0]})
+    # PIB anual (30-oct-2026, Marcos): solo como respuesta a lo que pregunta el REM, con aclaración; todavía NO se sella
+    pa, f_pa = ultimo_registro("pib_anual")
+    if len(pa):
+        filas = [{"periodo": str(int(x["anio"])), "nuestro": x["I"], "rem": x["rem_anterior"]} for _, x in pa.iterrows()]
+        tarjetas.append({"clave": "pib_anual", "titulo": "PIB anual (pregunta del REM)", "unidad": "% del promedio anual contra el año anterior",
+                         "filas": filas,
+                         "nota": "El REM pide el PIB de este año y de los dos siguientes. Más allá del año en curso, nuestra "
+                                 "respuesta es un supuesto de crecimiento, no un pronóstico detallado.",
+                         "sellar": False, "corrida": f_pa, "relevamiento": pa["relevamiento"].iloc[0]})
     # tasa
     s, f_s = ultimo_registro("tasa")
     if len(s):
-        filas = [{"periodo": x["mes"], "nuestro": x["A"], "rem": x["rem_anterior"]} for _, x in s.iterrows()]
+        # h 12 = próx. 12 meses (mes t+12); 100/101 = diciembre del año en curso / siguiente (lo que el REM llama "año")
+        et = lambda x: ("Próx. 12 meses" if x["h"] == 12 else f"Fin de {x['mes'][:4]} (dic)" if x["h"] in (100, 101) else x["mes"])
+        filas = [{"periodo": et(x), "nuestro": x["A"], "rem": x["rem_anterior"]} for _, x in s.iterrows()]
         tarjetas.append({"clave": "tasa", "titulo": "Tasa TAMAR", "unidad": "TNA %, promedio del mes",
-                         "modelo": "Tasa actual + señal de los futuros de dólar", "filas": filas,
+                         "filas": filas,
                          "corrida": f_s, "relevamiento": s["relevamiento"].iloc[0]})
     # resultado primario
     fi, f_f = ultimo_registro("fiscal")
     if len(fi):
         filas = [{"periodo": str(int(x["anio"])), "nuestro": x["I"] / 1000, "rem": x["rem_anterior"] / 1000} for _, x in fi.iterrows()]
         tarjetas.append({"clave": "fiscal", "titulo": "Resultado primario (SPN)", "unidad": "billones de $, año calendario",
-                         "modelo": "Ejecución publicada + meta oficial para los meses que faltan", "filas": filas,
+                         "filas": filas,
                          "corrida": f_f, "relevamiento": fi["relevamiento"].iloc[0]})
     # comercio
     co, f_c = ultimo_registro("comercio")
@@ -135,8 +170,7 @@ def pronosticos():
         q = co[co["variable"] == var] if len(co) else co
         if len(q):
             filas = [{"periodo": str(x["periodo"]), "nuestro": x["A"], "rem": x["rem_anterior"]} for _, x in q.iterrows()]
-            tarjetas.append({"clave": var, "titulo": tit, "unidad": "millones de USD", "modelo": "Mismo mes del año anterior × "
-                             "crecimiento reciente" + (" + precios de granos" if var == "exportaciones" else ""),
+            tarjetas.append({"clave": var, "titulo": tit, "unidad": "millones de USD",
                              "filas": filas, "corrida": f_c, "relevamiento": q["relevamiento"].iloc[0]})
     # desocupación (28-oct-2026): I = "se queda" desestacionalizado. El IV trimestre que el REM llama "año" se muestra una sola vez
     de, f_d = ultimo_registro("desempleo")
@@ -144,10 +178,10 @@ def pronosticos():
         de = de.drop_duplicates("periodo")
         filas = [{"periodo": x["periodo"].replace("Q", " T"), "nuestro": x["I"], "rem": x["rem_anterior"]} for _, x in de.iterrows()]
         tarjetas.append({"clave": "desempleo", "titulo": "Desocupación (EPH)", "unidad": "% de la población activa, 31 aglomerados urbanos",
-                         "modelo": "Último dato de la EPH corregido por la estacionalidad del trimestre", "filas": filas,
+                         "filas": filas,
                          "corrida": f_d, "relevamiento": de["relevamiento"].iloc[0]})
     # orden de las tarjetas en el sitio (Marcos, 24-oct-2026: importaciones donde estaba el resultado primario, y viceversa)
-    orden = ["inflacion", "dolar", "pib", "desempleo", "tasa", "importaciones", "exportaciones", "fiscal"]
+    orden = ["inflacion", "nucleo", "dolar", "pib", "pib_anual", "desempleo", "tasa", "importaciones", "exportaciones", "fiscal"]
     return sorted(tarjetas, key=lambda t: orden.index(t["clave"]) if t["clave"] in orden else 99)
 
 
@@ -811,13 +845,22 @@ def publicar_tabla(destino, base, partes, titulo, desc, fuente, leeme=None):
 
 def tablas(destino):
     t = []
+    # registro de corridas: SOLO nuestro pronóstico publicado, con fecha y hora (30-oct-2026, Marcos: no publicar cómo se
+    # componen los modelos; antes salían las variantes internas, las señales del semáforo y la corrección del termómetro)
     regs = {}
-    for nombre, hoja in (("inflacion", "inflacion_I"), ("pronosticos", "inflacion_REM_A_y_B"), ("tc", "dolar"), ("pib", "pib"),
-                         ("tasa", "tasa"), ("fiscal", "resultado_primario"), ("comercio", "comercio_exterior"),
-                         ("alertas", "semaforo"), ("termometro", "termometro_super")):
+    for nombre, hoja, cols in (
+            ("inflacion", "inflacion", {"H": "horizonte", "objetivo": "periodo", "pronostico_inflacion": "pronostico"}),
+            ("tc", "dolar", {"h": "horizonte", "objetivo": "periodo", "A_dolar": "pronostico"}),
+            ("pib", "pib", {"trimestre": "periodo", "I_pib": "pronostico"}),
+            ("tasa", "tasa", {"h": "horizonte", "mes": "periodo", "A": "pronostico"}),
+            ("fiscal", "resultado_primario", {"anio": "periodo", "I": "pronostico"}),
+            ("comercio", "comercio_exterior", {"variable": "variable", "periodo": "periodo", "A": "pronostico"}),
+            ("desempleo", "desocupacion", {"etiqueta": "horizonte", "periodo": "periodo", "I": "pronostico"})):
         p = C / f"registro_{nombre}.csv"
         if p.exists():
-            regs[hoja] = pd.read_csv(p, encoding="utf-8-sig")
+            r = pd.read_csv(p, encoding="utf-8-sig")
+            cs = {"fecha_corrida": "fecha_corrida", "relevamiento": "relevamiento", **{k: v for k, v in cols.items() if k in r.columns}}
+            regs[hoja] = r[list(cs)].rename(columns=cs)
     t.append(publicar_tabla(destino, "comparacion_pronosticos", {"comparacion": tabla_comparacion()},
                             "Comparación de pronósticos: nuestro, REM y lo que pasó",
                             "Una fila por pronóstico (variable, horizonte, período e informe): la mediana del REM, el nuestro, el dato real, "
@@ -1028,9 +1071,6 @@ Una fila por pronóstico: variable x horizonte x período pronosticado x informe
   mas_cerca_del_real_que_el_pct_de_consultoras, puesto_estimado_por_acierto   cuando ya hay dato real: porcentaje
                             estimado de consultoras cuyo pronóstico quedó más lejos del dato que el nuestro, y el puesto que
                             eso implica (1 = el más cercano). ESTIMADO: el BCRA no publica el pronóstico de cada consultora.
-Modelos: inflación = I (inflación núcleo, expectativas de los hogares, dólar esperado); dólar = futuros ajustados por el
-descuento típico del REM; PIB = EMAE + tendencia; tasa = tasa actual + futuros; resultado primario = ejecución + meta
-oficial; comercio exterior = mismo mes del año anterior x crecimiento reciente (+ precios de granos en exportaciones).
 Fuentes: REM, BCRA; datos reales: INDEC, BCRA, Ministerio de Economía. Elaboración: Datos Con Método (CC BY 4.0).
 """
 
@@ -1233,7 +1273,7 @@ def html_estatico(resumen):
     L += ["</ul>", "<h2>Pronósticos próximos 12 meses</h2>",
           f'<p>Nuestro pronóstico para el próximo informe del REM y la mediana del último REM publicado ({_per(resumen["rem_ultimo"])}).</p>']
     for t in resumen.get("pronosticos") or []:
-        L.append(f'<h3>{_esc(t["titulo"])}</h3><p>{_esc(t["unidad"])}. Modelo: {_esc(t["modelo"])}.</p>')
+        L.append(f'<h3>{_esc(t["titulo"])}</h3><p>{_esc(t["unidad"])}.</p>')   # sin el modelo (Marcos, 30-oct-2026)
         L.append("<table><thead><tr><th>Período</th><th>Nuestro</th><th>REM anterior</th></tr></thead><tbody>")
         for f in t["filas"]:
             L.append(f'<tr><td>{_esc(_per(f["periodo"]))}</td><td>{_fp(t["clave"], f["nuestro"])}</td><td>{_fp(t["clave"], f["rem"])}</td></tr>')

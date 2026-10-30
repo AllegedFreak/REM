@@ -126,6 +126,43 @@ def main():
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "H": "año",
                     "objetivo": str(t_hoy.year), "N": anio["N"], "A": anio["A"], "REM_corr": anio["REM_corr"],
                     "persistencia": anio["persistencia"], "rem_anterior": anio["rem_ant"]})
+        # PRÓX. 12 Y 24 MESES Y AÑOS SIGUIENTES (30-oct-2026, Marcos: "armemos los períodos que faltan"), misma regla que la
+        # general (replicar_rem.py): camino mensual = núcleo publicada + N (m0..m6; si faltan meses del año, la última N);
+        # años siguientes = (1 + núcleo del año en curso)^{r_k} − 1 con la clase de referencia con superávit; meses sin
+        # pronóstico propio = tasa constante dentro de cada año; 12m = t+1..t+12; 24m = segundo año (t+13..t+24).
+        from replicar_rem import clase_referencia_c
+        camino = {}
+        for m in pd.period_range(f"{t_hoy.year}-01", f"{t_hoy.year + 2}-12", freq="M"):
+            if m <= t_hoy - 1:
+                camino[m] = 1 + real[m] / 100
+        nn = H.set_index("obj")["N"]
+        for m, val in nn.items():
+            camino[m] = 1 + val / 100
+        for m in pd.period_range(f"{t_hoy.year}-01", f"{t_hoy.year}-12", freq="M"):
+            camino.setdefault(m, 1 + nn.iloc[-1] / 100)
+        f_anio = lambda y: np.prod([camino[pd.Period(f"{y}-{i:02d}", "M")] for i in range(1, 13)])
+        rk, n_casos = clase_referencia_c(t_hoy.year)
+        for k in (1, 2):
+            y = t_hoy.year + k
+            meses = list(pd.period_range(f"{y}-01", f"{y}-12", freq="M"))
+            conocidos = [m for m in meses if m in camino]
+            resto = 12 - len(conocidos)
+            f_con = np.prod([camino[m] for m in conocidos]) if conocidos else 1.0
+            for m in meses:
+                camino.setdefault(m, (f_anio(t_hoy.year) ** rk[k] / f_con) ** (1 / resto) if resto else 1.0)
+        rr = pd.read_parquet(C / "rem_normalizada.parquet")
+        rr = rr[(rr["variable_std"] == "ipc_nucleo") & (rr["mes_relevamiento"] == rr["mes_relevamiento"].max())]
+        ra_a = rr[rr["tipo_periodo"] == "anio"].assign(a=lambda z: z["periodo_original"].astype(str).str[:4]).groupby("a")["mediana"].mean()
+        ra_p = rr[rr["tipo_periodo"] == "proximos_meses"].groupby("horizonte_meses")["mediana"].mean()
+        nuevos = [("12m", "12m", np.prod([camino[t_hoy + j] for j in range(1, 13)]), ra_p.get(12, np.nan)),
+                  ("año1", str(t_hoy.year + 1), f_anio(t_hoy.year + 1), ra_a.get(str(t_hoy.year + 1), np.nan)),
+                  ("año2", str(t_hoy.year + 2), f_anio(t_hoy.year + 2), ra_a.get(str(t_hoy.year + 2), np.nan)),
+                  ("24m", "24m", np.prod([camino[t_hoy + j] for j in range(13, 25)]), ra_p.get(24, np.nan))]
+        for H_, obj, f_, ra_ in nuevos:
+            reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "H": H_, "objetivo": obj, "N": (f_ - 1) * 100,
+                        "A": np.nan, "REM_corr": np.nan, "persistencia": np.nan, "rem_anterior": ra_})
+        L.append("   Núcleo, plazos largos (clase de referencia con superávit, " + f"{n_casos} casos): "
+                 + " | ".join(f"{H_} {(f_ - 1) * 100:.1f}% (REM ant. {ra_:.1f}%)" for H_, _, f_, ra_ in nuevos))
         p = C / "registro_nucleo.csv"
         pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
     L += ["", "ALERTAS: ninguna. Todo en orden."]

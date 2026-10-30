@@ -94,7 +94,7 @@
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redibujar);
 
   // ---------- decimales por variable
-  const DEC = { inflacion: 2, dolar: 0, pib: 2, desempleo: 1, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
+  const DEC = { inflacion: 2, nucleo: 2, dolar: 0, pib: 2, pib_anual: 2, desempleo: 1, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
 
   // ---------- portada
   function portada(R, F) {
@@ -150,7 +150,7 @@
   function fv(clave, v, d, conSigno = false) {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
     const pre = { dolar: "$", fiscal: "B$ " }[clave] || "";
-    const suf = ["inflacion", "pib", "desempleo", "tasa"].includes(clave) ? "%" : "";
+    const suf = ["inflacion", "nucleo", "pib", "pib_anual", "desempleo", "tasa"].includes(clave) ? "%" : "";
     const signo = conSigno ? (v > 0 ? "+" : v < 0 ? "−" : "") : (v < 0 ? "−" : "");
     return `${signo}${pre}${fmt(Math.abs(v), d)}${suf}`;
   }
@@ -173,6 +173,7 @@
         el("h3", { text: t.titulo }), el("p", { class: "unidad", text: t.unidad }),
         el("p", { class: "destacado" }, el("span", { class: "num-grande", text: fv(t.clave, prim.nuestro, d) }), el("span", { class: "per", text: periodoTxt(prim.periodo) })),
         el("div", { class: "desborde" }, tb),
+        t.nota ? el("p", { class: "nota", text: t.nota }) : null,
         el("p", { class: "registro", text: `Registrado ${t.corrida} · informe de ${mesTxt(t.relevamiento)}` })));
     }
   }
@@ -592,12 +593,6 @@
             x.wayback_pdf ? el("a", { href: x.wayback_pdf, rel: "noopener", text: "Archivo de Internet" }) : "Archivo de Internet: pendiente"),
           el("p", { class: "tweets" }, tw(x.post_url, "Publicación en LinkedIn"), " · ", tw(x.post_rem_url, "Comparación con el REM"), " · ", tw(x.post_real_url, "Comparación con el dato real")))));
     }
-  }
-
-  // ---------- método: qué modelo usa cada variable
-  function modelos(R) {
-    const ul = $("#modelos");
-    for (const t of R.pronosticos) ul.append(el("li", {}, el("strong", { text: `${t.titulo}: ` }), t.modelo + "."));
   }
 
   // ---------- arranque

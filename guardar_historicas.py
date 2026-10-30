@@ -8,8 +8,12 @@
 #   Controles: H01 descarga fallida (se conserva lo anterior) | H02 la fuente trae menos fechas que antes
 #              (se conservan las faltantes) | H03 valores ya guardados que cambiaron
 # Corre como mucho una vez por semana (salvo --forzar). Está en actualizar_todo.py.
+# Las encuestas de la UTDT (expectativas de inflación, confianza del consumidor y en el gobierno) se bajan TODOS LOS DÍAS
+# con --solo-utdt (30-oct-2026, Marcos: la corrida semanal del 23-oct se perdió la EI de octubre, que usa la inflación I);
+# la corrida semanal ya no las baja. Mismos controles; informe propio en datos/informe_utdt.txt.
 # Uso:
 #   py -3.13 guardar_historicas.py [--forzar]
+#   py -3.13 guardar_historicas.py --solo-utdt
 #   pythonw.exe guardar_historicas.py --aviso
 # Código de salida: 0 = todo en orden | 1 = hay alertas | 2 = error
 import argparse
@@ -37,6 +41,7 @@ SALIDA = CARPETA / "series_historicas.parquet"
 CATALOGO = CARPETA / "series_historicas_catalogo.csv"
 DUCKDB = CARPETA / "base_rem.duckdb"
 INFORME = CARPETA / "informe_historicas.txt"
+INFORME_UTDT = CARPETA / "informe_utdt.txt"   # corrida diaria --solo-utdt
 ALERTAS_CSV = CARPETA / "alertas_historicas.csv"
 HISTORIAL = CARPETA / "historial_historicas.csv"
 DIAS_ENTRE_CORRIDAS = 7
@@ -491,24 +496,29 @@ def main():
     ap = argparse.ArgumentParser(description="Guarda series históricas completas")
     ap.add_argument("--forzar", action="store_true", help="correr aunque no haya pasado una semana")
     ap.add_argument("--aviso", action="store_true", help="cartel de Windows solo si hay alertas")
+    ap.add_argument("--solo-utdt", action="store_true", help="solo las encuestas de la UTDT (corrida diaria)")
     args = ap.parse_args()
-    informe = [f"=== SERIES HISTÓRICAS | {datetime.now().strftime('%Y-%m-%d %H:%M')} ==="]
-    if HISTORIAL.exists() and not args.forzar:
+    solo = args.solo_utdt
+    INF = INFORME_UTDT if solo else INFORME
+    informe = [f"=== {'ENCUESTAS UTDT (diario)' if solo else 'SERIES HISTÓRICAS'} | {datetime.now().strftime('%Y-%m-%d %H:%M')} ==="]
+    if HISTORIAL.exists() and not args.forzar and not solo:
         h = pd.read_csv(HISTORIAL, encoding="utf-8-sig")
         ok = h[h["codigo"] < 2]
         if len(ok) and datetime.now() - pd.to_datetime(ok["fecha_corrida"].iloc[-1]) < timedelta(days=DIAS_ENTRE_CORRIDAS):
             informe.append(f"Sin cambios: la última corrida fue el {ok['fecha_corrida'].iloc[-1]} (corre una vez por semana; "
                            "usar --forzar para correr igual).")
             print("\n".join(informe))
-            INFORME.write_text("\n".join(informe), encoding="utf-8")
+            INF.write_text("\n".join(informe), encoding="utf-8")
             sys.exit(0)
     codigo, alertas = 0, []
     try:
         anterior = pd.read_parquet(SALIDA) if SALIDA.exists() else pd.DataFrame(columns=["id", "fecha", "valor"])
         cat_ant = pd.read_csv(CATALOGO, encoding="utf-8-sig").set_index("id") if CATALOGO.exists() else pd.DataFrame()
         partes, catalogo = [], []
-        for gen in (series_bcra(), series_datos_gob(), series_indec(), series_itcrm(), series_banco_mundial(), series_combustibles(),
-                    series_utdt(), series_precios_promedio(), series_confianza_gobierno()):
+        generadores = ((series_utdt, series_confianza_gobierno) if solo else
+                       (series_bcra, series_datos_gob, series_indec, series_itcrm, series_banco_mundial, series_combustibles,
+                        series_precios_promedio))
+        for gen in (f() for f in generadores):
             for sid, df, info in gen:
                 prev = anterior[anterior["id"] == sid]
                 if df is None:
@@ -544,6 +554,10 @@ def main():
         ya = set().union(*(set(p["id"].unique()) for p in partes)) if partes else set()
         for sid, prev in anterior[~anterior["id"].isin(ya)].groupby("id"):
             partes.append(prev)
+            if solo or str(sid).startswith("utdt_"):   # las baja la otra corrida (diaria o semanal): se conservan sin avisar
+                if sid in cat_ant.index:
+                    catalogo.append({"id": sid, **cat_ant.loc[sid].to_dict()})
+                continue
             alertas.append({"codigo": "H05", "id": sid, "detalle": "no vino en esta corrida: se conservan los datos guardados"})
             if sid in cat_ant.index:
                 catalogo.append({"id": sid, **cat_ant.loc[sid].to_dict(), "estado": "no actualizada"})
@@ -556,14 +570,19 @@ def main():
         for k in ("desde", "hasta"):   # las del catálogo anterior vienen como texto: todo a texto AAAA-MM-DD
             cat[k] = cat[k].astype(str).str[:10]
         cat.to_csv(CATALOGO, index=False, encoding="utf-8-sig")
-        vistas, salteadas = armar_duckdb()
+        vistas, salteadas = armar_duckdb() if not solo else ([], [])
 
-        informe.append(f"Series guardadas: {cat['id'].nunique()} ({int((cat['estado'] == 'actualizada').sum())} actualizadas) | "
-                       f"{len(total):,} datos | la más antigua desde {cat['desde'].min()}")
-        for f, g in cat.groupby("fuente"):
-            informe.append(f"  {f[:70]:70} {len(g):3} series, desde {g['desde'].min()}")
+        if solo:
+            for _, x in cat[cat["id"].str.startswith("utdt_")].iterrows():
+                informe.append(f"  {x['id']:32} hasta {x['hasta']}  ({x['datos']} datos)")
+        else:
+            informe.append(f"Series guardadas: {cat['id'].nunique()} ({int((cat['estado'] == 'actualizada').sum())} actualizadas) | "
+                           f"{len(total):,} datos | la más antigua desde {cat['desde'].min()}")
+            for f, g in cat.groupby("fuente"):
+                informe.append(f"  {f[:70]:70} {len(g):3} series, desde {g['desde'].min()}")
         informe.append(f"Archivos: datos\\series_historicas.parquet y datos\\series_historicas_catalogo.csv")
-        informe.append(f"Base DuckDB: datos\\base_rem.duckdb con {len(vistas)} vistas ({', '.join(vistas)})")
+        if not solo:
+            informe.append(f"Base DuckDB: datos\\base_rem.duckdb con {len(vistas)} vistas ({', '.join(vistas)})")
         if salteadas:
             informe.append(f"  Sin vista (archivo vacío o ilegible): {'; '.join(salteadas)}")
         informe.append("")
@@ -574,25 +593,26 @@ def main():
         informe.append("=" * 60)
         if alertas:
             codigo = 1
-            pd.DataFrame(alertas).to_csv(ALERTAS_CSV, index=False, encoding="utf-8-sig")
+            pd.DataFrame(alertas).to_csv(ALERTAS_CSV.with_name("alertas_utdt.csv") if solo else ALERTAS_CSV, index=False, encoding="utf-8-sig")
             informe.append(f"ALERTAS: {len(alertas)} para revisar (detalle en datos\\alertas_historicas.csv)")
             for a in alertas[:15]:
                 informe.append(f"  - {a['codigo']} {CONTROLES[a['codigo']][0]} | {a['id']} | {a['detalle'][:120]}")
             informe.append("  No se borró ningún dato guardado.")
         else:
             informe.append("ALERTAS: ninguna. Todo en orden.")
-            if ALERTAS_CSV.exists():
+            if not solo and ALERTAS_CSV.exists():
                 ALERTAS_CSV.unlink()
     except Exception as e:
         import traceback
         informe += ["", "=" * 60, f"FALLA INESPERADA: {type(e).__name__}: {e}", "No se modificó el archivo de series.",
                     "Detalle: " + " | ".join(l.strip() for l in traceback.format_exc().splitlines()[-16:-6])]
         codigo = 2
-    pd.DataFrame([{"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "codigo": codigo, "alertas": len(alertas)}]).to_csv(
-        HISTORIAL, mode="a", header=not HISTORIAL.exists(), index=False, encoding="utf-8-sig")
+    if not solo:   # la corrida diaria no cuenta para el reloj semanal
+        pd.DataFrame([{"fecha_corrida": datetime.now().strftime("%Y-%m-%d %H:%M"), "codigo": codigo, "alertas": len(alertas)}]).to_csv(
+            HISTORIAL, mode="a", header=not HISTORIAL.exists(), index=False, encoding="utf-8-sig")
     texto = "\n".join(informe)
     print(texto)
-    INFORME.write_text(texto, encoding="utf-8")
+    INF.write_text(texto, encoding="utf-8")
     if args.aviso and codigo:
         try:
             import ctypes

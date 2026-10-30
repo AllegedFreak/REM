@@ -36,6 +36,7 @@ C = Path(__file__).resolve().parent / "datos"
 IDS = {"exportaciones": "datosgob_74.3_IET_0_M_16", "importaciones": "datosgob_74.3_IIT_0_M_25"}
 PRECIOS = {"px_om": "bm_indice_oils_meals", "px_gr": "bm_indice_grains"}     # solo para exportaciones
 MIN = 24
+ANUAL_COMO_REM = {"importaciones"}   # año siguiente con A_anual (30-oct-2026); exportaciones: exportaciones_v2()
 
 
 CORRIDA = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")   # UNA sola hora por corrida (28-oct-2026: con la hora fila por fila,
@@ -66,6 +67,91 @@ def camino(s, ult, g, hasta):
             return None
         v[m] = b * np.exp(g)
     return v
+
+
+def stl(s, ult):
+    """STL robusto (período 12) sobre el log de los últimos 15 años conocidos en ult: tendencia, estacionalidad y resto."""
+    from statsmodels.tsa.seasonal import STL
+    x = np.log(s[(s.index <= ult) & (s.index > ult - 180)])
+    r = STL(x.values, period=12, robust=True).fit()
+    c = {k: pd.Series(getattr(r, k), index=x.index) for k in ("trend", "seasonal", "resid")}
+    c["seas_mes"] = c["seasonal"].groupby(c["seasonal"].index.month).last()   # estacionalidad más reciente de cada mes
+    return c
+
+
+def exportaciones_v2(X, s, COLS, t_hoy):
+    """Exportaciones (30-oct-2026, Marcos: "1 a 4"; probar_comercio_base.py y pruebas en el chat):
+    1. meses 0-3: REM anterior del mismo mes × corrección por el sesgo del REM (promedio de sus últimos 12 errores conocidos en
+       ese horizonte), con FRENO: si alguno de los 3 últimos errores del REM para el mes en curso es de signo contrario al sesgo y
+       mayor a 2%, sin corrección. El REM subestimó las exportaciones en 2024-26; en 2021-24 la corrección sin freno fallaba.
+    2. meses 4-6: A_stl = mismo mes del año anterior según STL robusto (tendencia × estacionalidad) × relación de A.
+    3. año siguiente: REM anterior del año × corrección por su sesgo en el año siguiente (últimos 12 informes con el año cerrado).
+    4. año en curso: meses conocidos + los meses de 1-2; más allá de t+6, mismo mes del año anterior × relación de h6 de A_stl.
+    Si falta algo (comienzo de la muestra), queda A. Devuelve X con A reemplazado y A_previo para comparar."""
+    X = X.copy()
+    X["A_previo"] = X["A"]
+    mm = X["tipo"] == "mes"
+    X["obj_m"] = None
+    X.loc[mm, "obj_m"] = list(pd.PeriodIndex(X.loc[mm, "objetivo"], freq="M"))
+    M = X[mm].copy()
+    ults = {t: (t - 1 if (t - 1) in s.index else s.index.max()) for t in M["origen"].unique()}
+    comp = {t: stl(s, u) for t, u in ults.items()}
+    M["base_stl"] = [float(np.exp(comp[t]["trend"][b - 12] + comp[t]["seas_mes"][b.month])) if (b - 12) <= ults[t] else np.nan
+                     for t, b in zip(M["origen"], M["obj_m"])]
+    M["y_stl"] = np.log(M["rem"] / M["base_stl"])
+    M["A_stl"] = np.nan
+    for hh, q in M.groupby("h"):
+        for i, row in q.iterrows():
+            tr = q[q["origen"] < row["origen"]].dropna(subset=COLS + ["y_stl"])
+            if len(tr) >= MIN and row[COLS].notna().all() and not np.isnan(row["base_stl"]):
+                M.loc[i, "A_stl"] = row["base_stl"] * np.exp(huber(tr[COLS].values, tr["y_stl"].values, row[COLS].values.astype(float)))
+    M["e"] = np.log(M["rem"] / M["real"])                                  # error del REM (log)
+    ra = M.set_index(["origen", "obj_m"])["rem"]
+    M["rem_ant"] = [ra.get((o - 1, b), np.nan) for o, b in zip(M["origen"], M["obj_m"])]
+    e0 = M[M["h"] == 0].set_index("obj_m")["e"].dropna().sort_index()
+    corr = []
+    for _, r in M.iterrows():
+        o, h = r["origen"], r["h"]
+        prev = M[(M["h"] == h) & (M["obj_m"] <= o - 1) & (M["origen"] < o)].sort_values("obj_m")["e"].dropna().tail(12)
+        u3 = e0[e0.index <= o - 1].tail(3)
+        if len(prev) < 6 or len(u3) < 3:
+            corr.append(np.nan)
+            continue
+        b = prev.mean()
+        corr.append(0.0 if ((np.sign(u3) != np.sign(b)) & (u3.abs() > 0.02)).any() else -b)
+    M["corr"] = corr
+    M["A_v2"] = np.where((M["h"] <= 3) & M["rem_ant"].notna() & M["corr"].notna(), M["rem_ant"] * np.exp(M["corr"]),
+                         M["A_stl"].fillna(M["A"]))
+    X.loc[M.index, "A"] = M["A_v2"]
+    X.loc[M.index, "corr_rem"] = M["corr"]
+    # años
+    Y = X[~mm]
+    e1 = Y[(Y["h"] == 1)].assign(anio=lambda z: z["objetivo"].astype(int), e=lambda z: np.log(z["rem"] / z["real"]))
+    for t, q in M.groupby("origen"):
+        ult = ults[t]
+        v = {m: s[m] for m in s.index if m <= ult}
+        g6 = q[q["h"] == 6]
+        yh6 = float(np.log(g6["A_stl"].iloc[0] / g6["base_stl"].iloc[0])) if len(g6) and g6["A_stl"].notna().all() else np.nan
+        pm = q.set_index("obj_m")["A_v2"]
+        ok = True
+        for m in pd.period_range(ult + 1, pd.Period(f"{t.year}-12", "M"), freq="M"):
+            if m in pm.index and not np.isnan(pm[m]):
+                v[m] = pm[m]
+            elif (m - 12) in v and not np.isnan(yh6):
+                v[m] = v[m - 12] * np.exp(yh6)
+            else:
+                ok = False
+        i0 = Y[(Y["origen"] == t) & (Y["h"] == 0)].index
+        if ok and len(i0):
+            X.loc[i0, "A"] = sum(v[m] for m in pd.period_range(f"{t.year}-01", f"{t.year}-12", freq="M"))
+        # año siguiente: REM anterior × corrección por su sesgo en el año siguiente
+        a1 = t.year + 1
+        rem_ant1 = Y[(Y["origen"] == t - 1) & (Y["objetivo"].astype(str) == str(a1))]["rem"]
+        k = e1[e1["real"].notna() & (e1["anio"] <= t.year - 1) & (e1["origen"] < t)].sort_values("origen")["e"].tail(12)
+        i1 = Y[(Y["origen"] == t) & (Y["h"] == 1)].index
+        if len(i1) and len(rem_ant1) and rem_ant1.notna().all() and len(k) >= 6:
+            X.loc[i1, "A"] = float(rem_ant1.iloc[0]) * np.exp(-k.mean())
+    return X.drop(columns=["obj_m"])
 
 
 def main():
@@ -163,6 +249,25 @@ def main():
                 a = int(X.loc[i, "objetivo"])
                 X.loc[i, "A"] = sum(v[m] for m in pd.period_range(f"{a}-01", f"{a}-12", freq="M"))
             X.loc[mm & (X["origen"] == t), "A_cadena_check"] = [v.get(pd.Period(o, "M"), np.nan) for o in q["objetivo"]]
+        if var in ANUAL_COMO_REM:
+            # AÑO SIGUIENTE "como el REM" (30-oct-2026, Marcos; probar_comercio_anual.py): nuestro año en curso × crecimiento que
+            # esperaría el REM = Huber de log(REM año+1 / REM año en curso) sobre g3, g12, último mes y mes del relevamiento.
+            # Importaciones 2022-24 contra el real: 19,2% (encadenado 22,3%, REM 13,4%); distancia al REM 11,5 -> 6,0%.
+            X["A_encadenado"] = X["A"]
+            ca = ["g3", "g12", "ult_rel", "mes_rel"]
+            D = X[mm & (X["h"] == 0)].set_index("origen")[["g3", "g12", "ult_rel"]]
+            a0 = X[(~mm) & (X["h"] == 0)].set_index("origen")
+            a1 = X[(~mm) & (X["h"] == 1)].set_index("origen")
+            D = D.join(pd.DataFrame({"rem0": a0["rem"], "A0": a0["A"], "rem1": a1["rem"]}))
+            D["mes_rel"] = [o.month for o in D.index]
+            D["y"] = np.log(D["rem1"] / D["rem0"])
+            for o, row in D.sort_index().iterrows():
+                tr = D[D.index < o].dropna(subset=ca + ["y"])
+                if len(tr) >= MIN and row[ca].notna().all() and not np.isnan(row["A0"]):
+                    X.loc[(~mm) & (X["h"] == 1) & (X["origen"] == o), "A"] = row["A0"] * np.exp(
+                        huber(tr[ca].values, tr["y"].values, row[ca].values.astype(float)))
+        if var == "exportaciones":
+            X = exportaciones_v2(X, s, COLS, t_hoy)
         todo.append(X)
         # informe
         L.append(f"##### {var.upper()}")

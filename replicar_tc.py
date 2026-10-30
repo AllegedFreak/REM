@@ -60,7 +60,9 @@ def curva_promedio(fu, tc, f, o):
     for h in range(1, 25):
         m = o + h
         fin = curva.get(m, np.nan)
-        ini = spot if h == 1 else curva.get(m - 1, np.nan)
+        # el promedio de m va del fin de m-1 al fin de m: para h=1, el fin del mes en curso es el contrato de ese mes (si existe;
+        # si no, el A3500 del día). Antes usaba siempre el A3500 del día de la curva (30-oct-2026: 0,13% en nov-2026)
+        ini = curva.get(m - 1, spot) if h == 1 else curva.get(m - 1, np.nan)
         if h == 1 and np.isnan(fin):
             continue
         if not (np.isnan(ini) or np.isnan(fin)):

@@ -196,6 +196,26 @@ def main():
     dias25 = con.execute(f"select strftime(fecha, '%Y-%m') as mes, count(distinct fecha) as n from read_parquet('{glob}') "
                          "where day(fecha) <= 25 group by 1").df().set_index("mes")["n"]
     dias25.index = pd.PeriodIndex(dias25.index, freq="M")
+    # MES ANTERIOR INCOMPLETO (30-oct-2026, Marcos, opción A): si al mes anterior le faltan más de 3 días, los dos meses se
+    # comparan en los MISMOS días del mes. Caso: sep-2026 solo tiene del 1 al 22 (el portal guarda 7 días y nadie archivó
+    # del 23 al 30); sin esto, octubre se comparaba contra un septiembre sin su última semana (más barato): termómetro
+    # inflado ~0,15-0,2 pp. Los meses a los que les faltan 1 a 3 días sueltos no cambian.
+    dias_de = con.execute(f"select distinct strftime(fecha, '%Y-%m') as mes, day(fecha) as d from read_parquet('{glob}')").df()
+    dias_de["mes"] = pd.PeriodIndex(dias_de["mes"], freq="M")
+    mismos = {}
+    for ma, n in dias_mes.items():
+        if n >= ma.days_in_month - 3 or (ma + 1) not in dias_mes.index:
+            continue
+        comun = sorted(set(dias_de.loc[dias_de["mes"] == ma, "d"]) & set(dias_de.loc[dias_de["mes"] == ma + 1, "d"]))
+        if len(comun) < MIN_DIAS_25:
+            continue
+        q = con.execute(f"""select strftime(fecha, '%Y-%m') as mes, item, exp(avg(ln(precio_efectivo))) as precio,
+                                   exp(avg(case when day(fecha) <= 25 then ln(precio_efectivo) end)) as precio25
+                            from read_parquet('{glob}') where precio_efectivo > 0
+                              and strftime(fecha, '%Y-%m') in ('{ma}', '{ma + 1}') and day(fecha) in ({','.join(map(str, comun))})
+                            group by 1, 2""").df()
+        q["mes"] = pd.PeriodIndex(q["mes"], freq="M")
+        mismos[ma + 1] = (q, comun)
     con.close()
     prom["mes"] = pd.PeriodIndex(prom["mes"], freq="M")
     mensual, clases_mes = [], []
@@ -207,6 +227,10 @@ def main():
             continue
         a = prom[prom["mes"] == m0].set_index("item")["precio"]
         b = prom[prom["mes"] == m1].set_index("item")
+        if m1 in mismos:                                   # mes anterior incompleto: mismos días en los dos meses
+            q, comun = mismos[m1]
+            a = q[q["mes"] == m0].set_index("item")["precio"]
+            b = b[["region", "producto_indec"]].join(q[q["mes"] == m1].set_index("item")[["precio", "precio25"]], how="inner")
         b = b[b.index.isin(a.index)]
         b["rel"] = b["precio"] / a.reindex(b.index)
         b["rel25"] = b["precio25"] / a.reindex(b.index)
@@ -214,7 +238,8 @@ def main():
             br = b[b["region"] == reg]
             if br.empty:
                 continue
-            fila = {"mes": str(m1), "region": reg, "variacion_pct": np.nan, "variacion_25_pct": np.nan, "n_items": len(br)}
+            fila = {"mes": str(m1), "region": reg, "variacion_pct": np.nan, "variacion_25_pct": np.nan, "n_items": len(br),
+                    "mismos_dias": (f"{mismos[m1][1][0]}-{mismos[m1][1][-1]}" if m1 in mismos else "")}
             if m1 in completos:
                 por_var = br.groupby("producto_indec")["rel"].apply(jevons).dropna() * 100
                 clases, total, _ = agregar(por_var, reg, pond)

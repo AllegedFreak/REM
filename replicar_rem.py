@@ -246,9 +246,12 @@ def pred_metodo(X, y, x0, edades, semivida=None, lam=0.0):
     return float(my + ((x0 - mx) / sx) @ b)
 
 
-def combustible_cortes(cortes, producto="Nafta (súper)%"):
+def combustible_cortes(cortes, producto="Nafta (súper)%", vigencia_dias=60):
     """Índice de precios en surtidor (país) en cada momento de `cortes`, desde la base de actualizar_combustibles.py.
-    Cada precio rige hasta el próximo cambio de la estación, con tope de 6 meses.
+    Cada precio rige hasta el próximo cambio de la estación, con tope de `vigencia_dias` (60 desde el 30-oct-2026: con 6 meses,
+    las estaciones que no informan sus aumentos quedaban con el precio viejo y diluían las subas; contra el rubro 07.2.2
+    "Combustibles y lubricantes" del IPC (promedio de regiones, feb-2024 a sep-2026): error 0,93 → 0,60 pp/mes, correlación
+    0,90 → 0,97, sesgo −0,73 → −0,40; con 30 días 0,53 pero peor en el AMBA). Queda un sesgo de ~−0,4 pp/mes.
     Desde el 30-oct-2026 es un índice ENCADENADO DE LAS MISMAS ESTACIONES (como el INDEC): entre dos cortes consecutivos,
     media geométrica de precio_b/precio_a de las estaciones vigentes en los dos. Antes era la mediana de todas las vigentes:
     cuando vencían de golpe muchas estaciones con precios viejos (más baratos), la mediana saltaba sin que subiera ningún
@@ -263,7 +266,7 @@ def combustible_cortes(cortes, producto="Nafta (súper)%"):
         cs = sorted(pd.to_datetime(pd.Series(cortes)).unique())
         vig = {}
         for ts in cs:
-            q = p[(p["f"] <= ts) & (p["f"] > ts - pd.DateOffset(months=6))]
+            q = p[(p["f"] <= ts) & (p["f"] > ts - pd.Timedelta(days=vigencia_dias))]
             vig[ts] = q.groupby("est")["precio"].last()
         nivel, out = None, {}
         for a, b in zip([None] + cs[:-1], cs):
@@ -379,6 +382,27 @@ REGISTRO_INFLACION = D.CARPETA / "registro_inflacion.csv"
 I_HOY = {}   # pronóstico de la inflación ("I") del relevamiento en curso, por horizonte (lo llena la sección 5)
 
 
+def clase_referencia_c(anio_hoy):
+    """Inflación más allá de 12 meses por CLASE DE REFERENCIA (30-oct-2026, Marcos; probar_inflacion_referencia.py).
+    Casos de otros países (FMI, WEO, dic/dic, desde 1980, solo años ya ocurridos) con inflación entre 20% y 40%, más baja
+    que el año anterior y superávit fiscal del gobierno general (GGXCNL_NGDP >= 0). Devuelve las medianas de
+    r_k = log(1 + π_{t+k}) / log(1 + π_t) para k = 1 y 2 (22-24 casos de 17 países; con superávit la inflación volvió a subir
+    a 2 años en el 5% de los casos, contra 36% con déficit). Usa las copias de datos/copias/fmi_*.json."""
+    import json
+    cp = D.CARPETA / "copias"
+    pi = json.loads(sorted(cp.glob("fmi_pcpiepch_*.json"))[-1].read_text(encoding="utf-8"))["values"]["PCPIEPCH"]
+    sal = json.loads(sorted(cp.glob("fmi_ggxcnl_ngdp_*.json"))[-1].read_text(encoding="utf-8"))["values"]["GGXCNL_NGDP"]
+    r = {1: [], 2: []}
+    for p, s in pi.items():
+        s = {int(a): v for a, v in s.items() if v is not None and int(a) < anio_hoy}       # solo años ya ocurridos
+        for a, v in s.items():
+            if 20 <= v <= 40 and s.get(a - 1, -1) > v and sal.get(p, {}).get(str(a), -1) >= 0:
+                for k in (1, 2):
+                    if (a + k) in s:
+                        r[k].append(np.log1p(s[a + k] / 100) / np.log1p(v / 100))
+    return {k: float(np.median(v)) for k, v in r.items()}, len(r[2])
+
+
 def pronostico_inflacion(O, t, lp, rem12):
     """Sección 10 (desde el 16-oct-2026): NUESTRO PRONÓSTICO DE LA INFLACIÓN ("I"). Objetivo de Marcos: ganarle al REM
     pronosticando la inflación (el IPC que efectivamente se publica). I = A con el PROMEDIO de las expectativas de los
@@ -442,6 +466,49 @@ def pronostico_inflacion(O, t, lp, rem12):
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "H": H,
                     "objetivo": "12m" if H == "12m" else mes, "pronostico_inflacion": p,
                     "fuente": "I + termómetro" if (H == "m0" and corr) else "I"})
+    # AÑOS (dic/dic) y PRÓX. 24 MESES, como los pide el REM (30-oct-2026, Marcos). Año en curso = meses publicados + I
+    # (m0..m6; si faltan meses del año, la tasa del 12m). Años siguientes: año en curso llevado con la CLASE DE REFERENCIA
+    # (otros países con 20-40% de inflación, bajando y con superávit fiscal): π_k = (1 + π_año en curso)^{r_k} − 1.
+    # Meses sin pronóstico propio: tasa mensual constante dentro de cada año, la que cierra el año en su valor.
+    # Próx. 24 meses = inflación del SEGUNDO año (t+13 a t+24, definición del BCRA), producto de ese camino mensual.
+    try:
+        pm = np.expm1(lp.diff()) * 100
+        if all(not np.isnan(p_hoy.get(H, np.nan)) for H in ["12m"] + [f"m{h}" for h in range(7)]):
+            tasa12 = (1 + p_hoy["12m"] / 100) ** (1 / 12)
+            camino = {}                                       # mes -> factor (1 + inflación del mes)
+            for m in pd.period_range(f"{t.year}-01", f"{t.year + 2}-12", freq="M"):
+                if m <= t - 1:
+                    camino[m] = 1 + pm[m] / 100
+                elif (m - t).n <= 6:
+                    camino[m] = 1 + p_hoy[f"m{(m - t).n}"] / 100
+            for m in pd.period_range(f"{t.year}-01", f"{t.year}-12", freq="M"):
+                camino.setdefault(m, tasa12)
+            anio = lambda y: np.prod([camino[pd.Period(f"{y}-{i:02d}", "M")] for i in range(1, 13)])
+            pi0 = anio(t.year) - 1
+            rk, n_casos = clase_referencia_c(t.year)
+            for k in (1, 2):
+                y = t.year + k
+                meta = (1 + pi0) ** rk[k]                     # factor del año y según la clase de referencia
+                conocidos = [m for m in pd.period_range(f"{y}-01", f"{y}-12", freq="M") if m in camino]
+                f_con = np.prod([camino[m] for m in conocidos]) if conocidos else 1.0
+                resto = 12 - len(conocidos)
+                for m in pd.period_range(f"{y}-01", f"{y}-12", freq="M"):
+                    camino.setdefault(m, (meta / f_con) ** (1 / resto) if resto else 1.0)
+            for k, y in enumerate((t.year, t.year + 1, t.year + 2)):
+                reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "H": f"año{k}", "objetivo": str(y),
+                            "pronostico_inflacion": (anio(y) - 1) * 100,
+                            "fuente": "I" if k == 0 else f"I; clase de referencia con superávit ({n_casos} casos)"})
+            p24 = np.prod([camino[t + j] for j in range(13, 25)])
+            reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "H": "24m", "objetivo": "24m",
+                        "pronostico_inflacion": (p24 - 1) * 100, "fuente": f"I; clase de referencia con superávit ({n_casos} casos)"})
+            linea.append("años " + " / ".join(f"{t.year + k}: {(anio(t.year + k) - 1) * 100:.1f}%" for k in range(3))
+                         + f" | 24m: {(p24 - 1) * 100:.1f}%")
+            # camino mensual de I, para comparar (el publicado es el de G: replicar_general.py -> camino_inflacion.csv)
+            pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "inflacion_mensual": (f - 1) * 100}
+                          for m, f in sorted(camino.items()) if m >= t]).to_csv(
+                D.CARPETA / "camino_inflacion_I.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
+    except Exception as e:
+        L.append(f"    AVISO: no se pudieron armar los años y los 24 meses ({type(e).__name__}: {e})")
     if reg:
         pd.DataFrame(reg).to_csv(REGISTRO_INFLACION, mode="a", header=not REGISTRO_INFLACION.exists(), index=False,
                                  encoding="utf-8-sig", float_format="%.4f")
@@ -731,10 +798,17 @@ def main():
     itcrm_d = itcrm_d[itcrm_d["fecha"].dt.day <= DIA_CORTE_TC]
     itcrm25 = itcrm_d.groupby(itcrm_d["fecha"].dt.to_period("M"))["valor"].mean()
     meses_c = pd.period_range("2016-01", pd.Period(pd.Timestamp.today(), "M"), freq="M")
-    cortes25 = [pd.Timestamp(m.year, m.month, DIA_CORTE_TC, 23, 59) for m in meses_c]
-    cortesfin = [m.to_timestamp(how="end").floor("s") for m in meses_c]
-    ci = combustible_cortes(cortes25 + cortesfin)              # una sola cadena: el 25 y el fin de mes en la misma base
-    c25, cfin = ci.reindex(pd.to_datetime(cortes25)).dropna(), ci.reindex(pd.to_datetime(cortesfin)).dropna()
+    # PROMEDIO MENSUAL (30-oct-2026), como mide el INDEC: el IPC usa el precio de todo el mes, así que un aumento de la última
+    # semana entra casi entero en el IPC del mes SIGUIENTE (fin de sep-2026: nafta +1,6%, gasoil +3,2%; con "día 25 contra
+    # fin de mes" octubre daba +0,6% y con promedios ~+1,8%). Cortes los días 5, 10, 15, 20, 25 y fin de mes; c25 = promedio
+    # hasta el día 25 (lo que se sabe al relevar), cfin = promedio del mes entero. Nafta súper y premium, media geométrica.
+    dias_c = {m: [pd.Timestamp(m.year, m.month, d, 23, 59) for d in (5, 10, 15, 20, DIA_CORTE_TC)] + [m.to_timestamp(how="end").floor("s")]
+              for m in meses_c}
+    todos_c = [x for v in dias_c.values() for x in v]
+    cs_, cp_ = combustible_cortes(todos_c), combustible_cortes(todos_c, producto="Nafta (premium)%")
+    ci = np.sqrt(cs_ * cp_.reindex(cs_.index)).dropna() if len(cp_) else cs_
+    c25 = pd.Series({v[0]: ci.reindex(pd.to_datetime(v[:5])).mean() for m, v in dias_c.items()}).dropna()
+    cfin = pd.Series({v[-1]: ci.reindex(pd.to_datetime(v)).mean() for m, v in dias_c.items()}).dropna()
     lc25 = pd.Series(np.log(c25.values), index=pd.DatetimeIndex(c25.index).to_period("M")) if len(c25) else pd.Series(dtype=float)
     lcfin = pd.Series(np.log(cfin.values), index=pd.DatetimeIndex(cfin.index).to_period("M")) if len(cfin) else pd.Series(dtype=float)
     lcfin = lcfin[lcfin.index < pd.Period(pd.Timestamp.today(), "M")]          # el mes en curso no está cerrado
