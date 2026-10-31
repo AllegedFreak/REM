@@ -154,6 +154,9 @@ def main():
         rr = rr[(rr["variable_std"] == "ipc_nucleo") & (rr["mes_relevamiento"] == rr["mes_relevamiento"].max())]
         ra_a = rr[rr["tipo_periodo"] == "anio"].assign(a=lambda z: z["periodo_original"].astype(str).str[:4]).groupby("a")["mediana"].mean()
         ra_p = rr[rr["tipo_periodo"] == "proximos_meses"].groupby("horizonte_meses")["mediana"].mean()
+        for x_ in reg:                                   # año en curso: la respuesta anual del REM, no la armada con sus meses
+            if x_["H"] == "año" and str(t_hoy.year) in ra_a.index:   # (30-oct-2026, Marcos: "usa 28")
+                x_["rem_anterior"] = ra_a[str(t_hoy.year)]
         nuevos = [("12m", "12m", np.prod([camino[t_hoy + j] for j in range(1, 13)]), ra_p.get(12, np.nan)),
                   ("año1", str(t_hoy.year + 1), f_anio(t_hoy.year + 1), ra_a.get(str(t_hoy.year + 1), np.nan)),
                   ("año2", str(t_hoy.year + 2), f_anio(t_hoy.year + 2), ra_a.get(str(t_hoy.year + 2), np.nan)),

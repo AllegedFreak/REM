@@ -94,7 +94,7 @@
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redibujar);
 
   // ---------- decimales por variable
-  const DEC = { inflacion: 2, nucleo: 2, dolar: 0, pib: 2, pib_anual: 2, desempleo: 1, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
+  const DEC = { inflacion: 2, nucleo: 2, dolar: 0, pib: 2, pib_anual: 2, desempleo: 2, tasa: 2, fiscal: 1, exportaciones: 0, importaciones: 0 };
 
   // ---------- portada
   function portada(R, F) {
@@ -205,15 +205,13 @@
       const unidadErr = b.error === "pct" ? "%" : "";
       const tb = el("table", { class: "tabla" });
       tb.append(el("thead", {},
-        el("tr", {}, el("th", { text: "" }), el("th", { class: "num", colspan: "3", text: "2025-26" })),
+        el("tr", {}, el("th", { text: "" }), el("th", { class: "num", colspan: "3", text: "2025-26 · prueba hacia atrás (simulada)" })),
         el("tr", {}, el("th", { text: "Horizonte" }), el("th", { class: "num", title: "Datos Con Método" }, el("span", { class: "marca-nuestro", text: "DCM*" })),
           el("th", { class: "num" }, el("span", { class: "marca-rem", text: "REM" })),
-          el("th", { class: "num sub-col", title: "Porcentaje de veces que el pronóstico de DCM* quedó más cerca del dato real que el REM", text: "% en que DCM* le ganó al REM" }))));
+          el("th", { class: "num sub-col", title: "Porcentaje de veces que el pronóstico de DCM* quedó más cerca del dato real que el REM", text: "% de veces más cerca del dato que el REM" }))));
       const tbody = el("tbody");
-      let gana = 0, total = 0;
       for (const f of b.filas) {
         const a = f.actual;
-        if (a) { total++; if (a.nuestro < a.rem) gana++; }
         tbody.append(el("tr", {},
           el("td", { text: etiquetaH(b.clave, f.h) }),
           el("td", { class: "num", text: a ? fmt(a.nuestro, d) + unidadErr : "—" }),
@@ -221,14 +219,12 @@
           el("td", { class: "num", text: a ? `${fmt(a.gana_pct, 0)}% (n ${a.n})` : "—" })));
       }
       tb.append(tbody);
-      const ver = total ? (gana === total ? ["gana", "▲ Mejor que el REM en 2025-26"] : gana === 0 ? ["pierde", "▼ El REM fue mejor en 2025-26"]
-        : ["pierde", `◆ Mejor que el REM en ${gana} de ${total} horizontes (2025-26)`]) : null;
+      // sin insignia de "mejor que el REM": la tabla es una prueba hacia atrás simulada, no pronósticos sellados (Marcos, 30-oct-2026)
       const canvas = el("canvas", { role: "img", "aria-label": `${b.titulo}: dato real, REM y pronóstico de Datos Con Método` });
       const art = el("article", { class: "bloque" },
         el("div", {}, el("h3", { text: b.titulo }), el("p", { class: "unidad", text: `Error medio en ${b.unidad}` }),
-          ver ? el("p", { class: "veredicto" }, el("span", { class: `insignia ${ver[0]}`, text: ver[1] })) : null,
           el("div", { class: "tabla-scroll", style: "border:0" }, tb),
-          el("p", { class: "nota", text: "\"% en que DCM* le ganó al REM\": porcentaje de veces que el pronóstico de DCM* quedó más cerca del dato real que el REM; n = cantidad de comparaciones." })),
+          el("p", { class: "nota", text: "Prueba hacia atrás (simulada): en cada fecha pasada se rehízo el pronóstico usando solo los datos publicados hasta ese momento. No son pronósticos sellados en su día. \"% de veces más cerca del dato que el REM\": porcentaje de comparaciones en que el pronóstico de DCM* quedó más cerca del dato real que la mediana del REM; n = cantidad de comparaciones." })),
         el("div", {}, el("div", { class: "grafico" }, canvas), el("p", { class: "nota", text: b.nota })));
       cont.append(art);
       graficos.push({ canvas, b, chart: null });
@@ -587,6 +583,7 @@
         el("div", {},
           el("h3", { text: `Pronóstico n.º ${x.n} · ${mesTxt(x.relevamiento)}` }),
           el("p", { class: "fuente-prod", text: `Registrado el ${x.registrado} (hora de Buenos Aires)` }),
+          x.reemplazado_por ? el("p", { class: "nota", text: `Reemplazado por el Pronóstico n.º ${x.reemplazado_por} del mismo relevamiento. La fe de erratas está en el PDF del n.º ${x.reemplazado_por}; este sello queda publicado sin cambios.` }) : null,
           el("div", { class: "formatos" }, enlace("pdf", "PDF"), enlace("png", "Imagen"), enlace("csv", "CSV"), enlace("ots_pdf", "Sello del PDF (.ots)"), enlace("ots_csv", "Sello del CSV (.ots)")),
           el("p", { class: "hash" }, "SHA-256 del PDF: ", el("code", { text: x.sha256_pdf })),
           el("p", { class: "fuente-prod" }, `Bitcoin: ${x.bitcoin === "sí" ? "anclado" : "pendiente (se completa unas horas después)"} · `,

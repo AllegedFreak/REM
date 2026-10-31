@@ -121,9 +121,11 @@ def pronosticos():
             H = str(x["H"])
             et = {"año": f"Año {x['objetivo']} (dic/dic)", "año1": f"Año {x['objetivo']} (dic/dic)", "año2": f"Año {x['objetivo']} (dic/dic)",
                   "12m": "Próx. 12 meses", "24m": "Próx. 24 meses (2.º año)"}.get(H, x["objetivo"])
-            filas.append({"periodo": et, "nuestro": x["N"], "rem": x["rem_anterior"]})
+            orden_n = (1, "") if H == "12m" else (3, "") if H == "24m" else (2, str(x["objetivo"])) if H.startswith("año") else (0, str(x["objetivo"]))
+            filas.append({"periodo": et, "nuestro": x["N"], "rem": x["rem_anterior"], "_o": orden_n})
+        filas = [{k: v for k, v in f.items() if k != "_o"} for f in sorted(filas, key=lambda f: f["_o"])]   # como la general
         tarjetas.append({"clave": "nucleo", "titulo": "Inflación núcleo", "unidad": "% mensual (12 y 24 meses y años: % acumulado)",
-                         "filas": filas, "sellar": False, "corrida": f_nu, "relevamiento": nu["relevamiento"].iloc[0]})
+                         "filas": filas, "corrida": f_nu, "relevamiento": nu["relevamiento"].iloc[0]})
     # tipo de cambio
     t, f_t = ultimo_registro("tc")
     if len(t):
@@ -147,7 +149,7 @@ def pronosticos():
                          "filas": filas,
                          "nota": "El REM pide el PIB de este año y de los dos siguientes. Más allá del año en curso, nuestra "
                                  "respuesta es un supuesto de crecimiento, no un pronóstico detallado.",
-                         "sellar": False, "corrida": f_pa, "relevamiento": pa["relevamiento"].iloc[0]})
+                         "corrida": f_pa, "relevamiento": pa["relevamiento"].iloc[0]})
     # tasa
     s, f_s = ultimo_registro("tasa")
     if len(s):
@@ -865,7 +867,7 @@ def tablas(destino):
                             "Comparación de pronósticos: nuestro, REM y lo que pasó",
                             "Una fila por pronóstico (variable, horizonte, período e informe): la mediana del REM, el nuestro, el dato real, "
                             "las diferencias entre los tres y dónde cae el nuestro entre las consultoras del REM (y, cuando ya hay dato real, "
-                            "en qué puesto estimado de acierto quedaría). Antes de oct-2026: reconstrucción en tiempo real; desde oct-2026: "
+                            "qué porcentaje de participantes quedó más lejos del dato). Antes de oct-2026: reconstrucción en tiempo real; desde oct-2026: "
                             "registrado antes de cada REM.",
                             "Datos Con Método (CC BY 4.0); REM: BCRA; datos reales: INDEC, BCRA y Ministerio de Economía",
                             leeme=LEEME_COMPARACION))
@@ -1040,7 +1042,6 @@ def tabla_comparacion():
     t["ubicacion"] = [u[1] for u in ub]
     t["ganamos_a"] = [acierto(n, re_, cu) for n, re_, cu in zip(t["nuestro"], t["real"], t[COL_REM].values)]
     n = t["cantidad_de_participantes"]
-    t["puesto"] = [None if pd.isna(g) or pd.isna(k) else f"≈ {int(round((1 - g / 100) * k)) + 1} de {int(k) + 1}" for g, k in zip(t["ganamos_a"], n)]
     t["tipo"] = np.where(t["o"] >= "2026-10", "registrado antes del REM", "reconstrucción en tiempo real")
     out = pd.DataFrame({
         "variable": t["variable"], "horizonte": t["horizonte"], "periodo_pronosticado": t["periodo"], "fecha_del_pronostico": t["o"],
@@ -1050,7 +1051,7 @@ def tabla_comparacion():
         "dif_dcm_menos_rem": (t["nuestro"] - t["rem"]).round(4), "dif_rem_menos_real": (t["rem"] - t["real"]).round(4),
         "dif_dcm_menos_real": (t["nuestro"] - t["real"]).round(4), "consultoras": n,
         "ubicacion_de_nuestro_pronostico": t["ubicacion"], "percentil_estimado": t["percentil"],
-        "mas_cerca_del_real_que_el_pct_de_consultoras": t["ganamos_a"], "puesto_estimado_por_acierto": t["puesto"]})
+        "mas_cerca_del_real_que_el_pct_de_consultoras": t["ganamos_a"]})
     return out.sort_values(["variable", "fecha_del_pronostico", "periodo_pronosticado"]).reset_index(drop=True)
 
 
@@ -1068,9 +1069,9 @@ Una fila por pronóstico: variable x horizonte x período pronosticado x informe
   ubicacion_de_nuestro_pronostico, percentil_estimado   dónde cae nuestro pronóstico entre los de las consultoras.
                             "Afuera" es exacto (se compara con el mínimo y el máximo que publica el BCRA); el percentil se
                             ESTIMA interpolando entre el mínimo, los percentiles 10, 25, 50, 75 y 90 y el máximo.
-  mas_cerca_del_real_que_el_pct_de_consultoras, puesto_estimado_por_acierto   cuando ya hay dato real: porcentaje
-                            estimado de consultoras cuyo pronóstico quedó más lejos del dato que el nuestro, y el puesto que
-                            eso implica (1 = el más cercano). ESTIMADO: el BCRA no publica el pronóstico de cada consultora.
+  mas_cerca_del_real_que_el_pct_de_consultoras   cuando ya hay dato real: porcentaje estimado de participantes del REM
+                            cuyo pronóstico quedó más lejos del dato que el nuestro. ESTIMADO: el BCRA no publica el
+                            pronóstico de cada participante.
 Fuentes: REM, BCRA; datos reales: INDEC, BCRA, Ministerio de Economía. Elaboración: Datos Con Método (CC BY 4.0).
 """
 
@@ -1215,7 +1216,12 @@ def sellos(destino):
                 archivos[clave] = f"sellos/{x['relevamiento']}/{nombre}"
         out.append({**{k: x[k] for k in ("n", "relevamiento", "registrado", "sha256_pdf", "sha256_csv", "bitcoin", "wayback_pdf",
                                          "post_url", "post_rem_url", "post_real_url")}, "archivos": archivos})
-    return sorted(out, key=lambda y: int(y["n"]), reverse=True)
+    clave = lambda y: (int("".join(c for c in y["n"] if c.isdigit()) or 0), "".join(c for c in y["n"] if not c.isdigit()))   # 1B va después de 1
+    out = sorted(out, key=clave, reverse=True)
+    for y in out:                    # el sello reemplazado por otro del mismo relevamiento lo dice (fe de erratas en el PDF del nuevo)
+        nuevos = [z["n"] for z in out if z["relevamiento"] == y["relevamiento"] and clave(z) > clave(y)]
+        y["reemplazado_por"] = nuevos[0] if nuevos else ""
+    return out
 
 
 # ---------------------------------------------------------------- 5e) HTML legible sin JavaScript + vista previa al compartir
@@ -1587,9 +1593,8 @@ def historias(t, rem_ultimo):
         frase = {"nosotros": "Estuvo más cerca DCM*.", "rem": "Estuvo más cerca el REM.", "empate": "Empate: DCM* y el REM quedaron a la misma distancia."}[gana]
         extra = ""
         if not pd.isna(x["mas_cerca_del_real_que_el_pct_de_consultoras"]):
-            pu = str(x["puesto_estimado_por_acierto"]).replace("≈ ", "")
             extra = (f" El pronóstico de DCM* quedó más cerca del dato que el {int(x['mas_cerca_del_real_que_el_pct_de_consultoras'])}% "
-                     f"de las consultoras (puesto aproximado: {pu}).")
+                     f"de los participantes del REM.")   # sin puesto: no armamos ranking (Marcos, 30-oct-2026)
         reales.append({"titulo": _titulo(var, x["horizonte"], ultimo), "clave": clave, "fuente": FUENTE_REAL[clave],
                        "real": _valor(clave, x["real"]), "rem": _valor(clave, x["rem_mediana"]), "nuestro": _valor(clave, x["datos_con_metodo"]),
                        "gana": gana, "texto": frase + extra,

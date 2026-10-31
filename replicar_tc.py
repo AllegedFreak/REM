@@ -193,6 +193,11 @@ def main():
                         "objetivo": str(obj), "futuro": f_h, "A_dolar": f_h * np.exp(desc), "I_dolar": f_h * np.exp(prim),
                         "rem_anterior": rem_ant})
     H = pd.DataFrame(filas_h)
+    # un solo pronóstico por mes (30-oct-2026, Marcos): si diciembre ya está como mes (h 1-6), "Fin de año" usa ese valor
+    for i, x in H[H["h"] >= DIC0].iterrows():
+        m = H[(H["h"] < 12) & (H["objetivo"] == x["objetivo"])]
+        if len(m):
+            H.loc[i, ["A_dolar", "I_dolar"]] = m[["A_dolar", "I_dolar"]].iloc[0].values
     reg = C / "registro_tc.csv"
     H.to_csv(reg, mode="a", header=not reg.exists(), index=False, encoding="utf-8-sig", float_format="%.2f")
     L.append(f"PRONÓSTICO DE HOY (curva de futuros del {hoy.date()}, A3500 {spot:,.2f}):")

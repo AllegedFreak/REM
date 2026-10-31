@@ -6,6 +6,8 @@
 #   3. sello OpenTimestamps de ambos (anclado en Bitcoin unas horas después; ver sello_ots.py);
 #   4. copia en el Archivo de Internet (web.archive.org) cuando el sitio esté publicado;
 #   5. imagen PNG y texto de la publicación de LinkedIn (publicacion_linkedin.txt) con la huella del PDF.
+# Otro sello del mismo relevamiento (30-oct-2026, Marcos): n.º 1B, 1C... con archivos pronostico_AAAA-MM_B.* y
+# publicacion_linkedin_B.txt en la misma carpeta; nunca pisa los del sello anterior.
 # La publicación la hace Marcos desde su cuenta de LinkedIn (decisión 24-oct-2026: LinkedIn, no X); después se comparte esa
 # misma publicación cuando sale el REM y cuando sale el dato real. Un sello por mes, numerado, nunca se pisa.
 # Registro: datos\sellos\registro_sellos.csv (post_url, post_rem_url y post_real_url se completan con
@@ -63,6 +65,16 @@ def sha256(p):
     return h.hexdigest()
 
 
+def numero(reg, rel):
+    """Número del sello: uno por relevamiento (1, 2, 3...); otro sello del mismo relevamiento lleva una letra: 1B, 1C...
+    (Marcos, 30-oct-2026: "Pronóstico n.º 1B · oct-2026"). Devuelve (número, sufijo del nombre de archivo)."""
+    ya = reg[reg["relevamiento"] == str(rel)]
+    if not len(ya):
+        return str(reg["relevamiento"].nunique() + 1), ""
+    letra = chr(ord("A") + len(ya))
+    return f"{''.join(c for c in str(ya['n'].iloc[0]) if c.isdigit())}{letra}", f"_{letra}"
+
+
 def registro():
     if REGISTRO.exists():
         return pd.read_csv(REGISTRO, encoding="utf-8-sig", dtype=str).fillna("")
@@ -87,8 +99,9 @@ def fmt(v, d, pre="", suf=""):
     return f"{'−' if v < 0 else ''}{pre}{txt}{suf}"
 
 
-FORMATO = {"inflacion": (2, "", "%"), "dolar": (0, "$", ""), "pib": (2, "", "%"), "tasa": (2, "", "%"), "fiscal": (0, "$ ", " mil millones"),
-           "exportaciones": (0, "", ""), "importaciones": (0, "", ""), "desempleo": (1, "", "%")}
+FORMATO = {"inflacion": (2, "", "%"), "dolar": (0, "$", ""), "pib": (2, "", "%"), "tasa": (2, "", "%"), "fiscal": (0, "", ""),
+           "nucleo": (2, "", "%"), "pib_anual": (2, "", "%"),
+           "exportaciones": (0, "", ""), "importaciones": (0, "", ""), "desempleo": (2, "", "%")}   # desocupación con 2 decimales (7,03 y 6,95; 30-oct-2026)
 
 
 def edge(html, salida, pdf=True, ancho=1200, alto=675):
@@ -111,7 +124,28 @@ LOGO = ('<svg width="28" height="28" viewBox="0 0 32 32"><rect x="1.5" y="1.5" w
         '<rect x="20.5" y="15" width="3.5" height="9" rx="1"/><circle cx="22.25" cy="8.5" r="2.25" fill="#2a78d6"/></svg>')
 
 
-def html_pdf(n, rel, registrado, tarjetas, sha_csv):
+def html_erratas(rel, sufijo):
+    """Fe de erratas dentro del PDF (Marcos, 30-oct-2026): texto en datos\\sellos\\fe_de_erratas_AAAA-MM_X.txt, si existe.
+    1.ª línea = título; líneas con '- ' = puntos de una lista; el resto, párrafos. Queda sellada con el PDF."""
+    p = SELLOS / f"fe_de_erratas_{rel}{sufijo}.txt"
+    if not sufijo or not p.exists():
+        return ""
+    lineas = [x.rstrip() for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    cuerpo, lista = [], []
+    for x in lineas[1:]:
+        if x.startswith("- "):
+            lista.append(f"<li>{x[2:]}</li>")
+            continue
+        if lista:
+            cuerpo.append(f"<ol>{''.join(lista)}</ol>")
+            lista = []
+        cuerpo.append(f"<p>{x}</p>")
+    if lista:
+        cuerpo.append(f"<ol>{''.join(lista)}</ol>")
+    return f"<div class='erratas'><h3>{lineas[0]}</h3>{''.join(cuerpo)}</div>"
+
+
+def html_pdf(n, rel, registrado, tarjetas, sha_csv, erratas=""):
     bloques = []
     for t in tarjetas:
         d, pre, suf = FORMATO.get(t["clave"], (2, "", ""))
@@ -133,74 +167,64 @@ td{{padding:2px 3px;border-bottom:1px solid var(--linea)}} .num{{text-align:righ
 .nuestro{{font-weight:600}} .mod{{color:var(--tenue);font-size:9px;margin:4px 0 0}}
 .pie{{margin-top:12px;border-top:1px solid var(--linea);padding-top:8px;color:var(--tinta2);font-size:9.5px;line-height:1.45}}
 .hash{{font-family:"IBM Plex Mono",Consolas,monospace;font-size:9px;word-break:break-all;color:var(--tinta)}}
+.erratas{{break-inside:avoid;margin-top:12px;border:1px solid var(--tinta);border-radius:6px;padding:8px 12px;font-size:10.5px;line-height:1.45}}
+.erratas h3{{margin-bottom:4px}} .erratas p{{margin:4px 0}} .erratas ol{{margin:4px 0;padding-left:18px}}
 </style></head><body>
 <header><div><div class="marca">{LOGO}Datos <span>Con</span> <b>Método</b></div>
 <h1>Pronóstico n.º {n} · relevamiento de {mes_txt(rel)}</h1>
 <p class="sub">Registrado el {registrado} (hora de Buenos Aires), antes de que el BCRA publique el REM de {mes_txt(rel)}.</p></div>
 <div class="mono" style="text-align:right;color:var(--tinta2)">www.datosconmetodo.com<br>Marcos Cavanagh</div></header>
 <div class="grilla">{''.join(bloques)}</div>
+{erratas}
 <div class="pie">
 <p>* REM anterior: mediana del último Relevamiento de Expectativas de Mercado publicado por el BCRA para el mismo período (solo como referencia).
 Nuestros pronósticos usan únicamente datos públicos disponibles a la fecha de registro. Algunos modelos aprenden de los REM
 ya publicados en meses anteriores; ninguno usa el REM del mes del relevamiento, que todavía no se conoce.</p>
 <p>Huella SHA-256 de los mismos datos en CSV (publicado en el sitio): <span class="hash">{sha_csv}</span></p>
-<p>La huella SHA-256 de este PDF se publica en LinkedIn y se sella en Bitcoin con OpenTimestamps: si se cambiara una sola letra
+<p>La huella SHA-256 de este PDF se publica en www.datosconmetodo.com y se sella en Bitcoin con OpenTimestamps: si se cambiara una sola letra
 de este documento, la huella sería otra. Cómo verificarlo: www.datosconmetodo.com/#sellos. Ejercicio estadístico; no es una
 recomendación de inversión. Datos propios bajo licencia CC BY 4.0.</p></div></body></html>"""
 
 
 def destacados(tarjetas):
     """Los números de la publicación y de la imagen: (etiqueta, valor con formato)."""
+    # una por variable sellada, la estimación más cercana en el tiempo (primera fila de cada tarjeta; Marcos, 30-oct-2026)
+    nombre = {"inflacion": "Inflación", "nucleo": "Inflación núcleo", "dolar": "Dólar", "pib": "PIB", "pib_anual": "PIB anual",
+              "desempleo": "Desocupación", "tasa": "TAMAR", "importaciones": "Importaciones", "exportaciones": "Exportaciones",
+              "fiscal": "Resultado primario"}
+    unidad = {"importaciones": "millones de US$", "exportaciones": "millones de US$", "fiscal": "miles de millones de $"}
     out = []
-    por = {t["clave"]: t for t in tarjetas}
-
-    def fila(clave, i):
-        t = por.get(clave)
-        if not t or i >= len(t["filas"]):
-            return None
-        return t["filas"][i]
-    for clave, idx, etq in (("inflacion", 0, None), ("inflacion", 1, None), ("inflacion", -1, "Inflación 12 meses"),
-                            ("dolar", None, "dic"), ("pib", 0, None), ("tasa", 0, None), ("fiscal", 0, None)):
-        t = por.get(clave)
-        if not t:
+    for t in tarjetas:
+        if not t["filas"]:
             continue
-        d, pre, suf = FORMATO[clave]
-        if clave == "dolar":
-            f = next((x for x in t["filas"] if str(x["periodo"]).startswith("Fin de")), t["filas"][0])
-            out.append((f"Dólar dic-{str(f['periodo'])[7:11]}" if str(f["periodo"]).startswith("Fin de") else f"Dólar {per_txt(f['periodo'])}",
-                        fmt(f["nuestro"], d, pre, suf)))
-            continue
-        if idx == -1:                                     # la fila de 12 meses por su nombre (la última es la de 24 meses; 30-oct-2026)
-            f = next((x for x in t["filas"] if "12 meses" in str(x["periodo"])), None)
-            if f is None:
-                continue
-        else:
-            f = t["filas"][idx]
-        nombre = {"inflacion": "Inflación", "pib": "PIB", "tasa": "TAMAR", "fiscal": "Resultado primario"}[clave]
-        out.append((etq or f"{nombre} {per_txt(f['periodo'])}", fmt(f["nuestro"], d, pre, suf)))
+        f = t["filas"][0]
+        d, pre, suf = FORMATO.get(t["clave"], (2, "", ""))
+        out.append((f"{nombre.get(t['clave'], t['titulo'])} {per_txt(f['periodo'])}", fmt(f["nuestro"], d, pre, suf),
+                    unidad.get(t["clave"], "")))
     return out
 
 
 def html_tarjeta(n, rel, registrado, items, sha_pdf):
-    cajas = "".join(f"<div class='caja'><div class='et'>{e}</div><div class='v'>{v}</div></div>" for e, v in items)
+    cajas = "".join(f"<div class='caja'><div class='et'>{e}</div><div class='v'>{v}</div><div class='u'>{u}</div></div>" for e, v, u in items)
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8"><style>{CSS}
 body{{width:1200px;height:675px;padding:42px 52px;display:flex;flex-direction:column;justify-content:space-between}}
 h1{{font-size:38px;margin:14px 0 4px;letter-spacing:-.01em}} .sub{{color:var(--tinta2);font-size:19px;margin:0}}
-.cajas{{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}}
-.caja{{border:1px solid var(--linea);border-radius:10px;padding:14px 16px;background:#fff}}
-.et{{font-size:16px;color:var(--tinta2)}} .v{{font-size:34px;font-weight:600;margin-top:4px;color:var(--tinta)}}
-.pie{{display:flex;justify-content:space-between;font-size:15px;color:var(--tinta2)}} .pie .mono{{font-size:14px}}
+.cajas{{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}}
+.caja{{border:1px solid var(--linea);border-radius:10px;padding:12px 14px;background:#fff}}
+.et{{font-size:15px;color:var(--tinta2)}} .v{{font-size:32px;font-weight:600;margin-top:6px;color:var(--tinta)}}
+.u{{font-size:13px;color:var(--tenue);min-height:16px}}
+.pie{{display:flex;flex-direction:column;gap:4px;font-size:15px;color:var(--tinta2)}} .pie .mono{{font-size:14px;color:var(--tinta)}}
 </style></head><body>
 <div><div class="marca" style="font-size:24px">{LOGO}Datos <span>Con</span> <b>Método</b></div>
 <h1>Pronóstico n.º {n} · {mes_txt(rel)}</h1><p class="sub">Registrado el {registrado}, antes de que el BCRA publique el REM. Sellado en Bitcoin (OpenTimestamps).</p></div>
 <div class="cajas">{cajas}</div>
-<div class="pie"><span>PDF completo y verificación: datosconmetodo.com/#sellos</span><span class="mono">SHA-256 del PDF: {sha_pdf[:16]}…</span></div>
+<div class="pie"><span>PDF completo y verificación: datosconmetodo.com/#sellos</span><span class="mono">SHA-256 del PDF: {sha_pdf}</span></div>
 </body></html>"""
 
 
 def texto_linkedin(n, rel, registrado, items, url_pdf, sha_pdf):
     """Publicación de LinkedIn (sin límite práctico de largo; LinkedIn admite 3.000 caracteres)."""
-    lineas = "\n".join(f"• {e}: {v}" for e, v in items)
+    lineas = "\n".join(f"• {e}: {v}{' ' + u if u else ''}" for e, v, u in items)
     fecha, hora = registrado[:10], registrado[11:16]
     fecha = f"{fecha[8:]}/{fecha[5:7]}/{fecha[:4]}"
     return (f"Pronóstico n.º {n} de Datos Con Método · relevamiento del REM de {MESES[rel.month - 1]} de {rel.year}\n\n"
@@ -238,7 +262,7 @@ def emitir(prueba=False, todo=False):
     hoy = pd.Timestamp.now()
     rel = pd.Period(hoy, "M")
     reg = registro()
-    n = 0 if prueba else len(reg) + 1
+    n, sufijo = numero(reg, rel)
     tarjetas = publicar_web.pronosticos()
     tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel) and (todo or t.get("sellar", True))]   # PIB anual y núcleo: no se sellan hasta que Marcos diga
     # (--prueba --todo: muestra cómo quedaría con todo, sin sellar ni registrar)
@@ -253,7 +277,7 @@ def emitir(prueba=False, todo=False):
     if carpeta.exists() and prueba:
         shutil.rmtree(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
-    nombre = f"pronostico_{rel}"
+    nombre = f"pronostico_{rel}{sufijo}"                 # el 1B no pisa los archivos del 1
     filas = [{"variable": t["titulo"], "unidad": t["unidad"], "periodo": f["periodo"], "datos_con_metodo": f["nuestro"],
               "rem_anterior": f["rem"], "registrado": t["corrida"], "relevamiento": str(rel)}   # sin la columna modelo (Marcos, 30-oct-2026)
              for t in tarjetas for f in t["filas"]]
@@ -261,7 +285,7 @@ def emitir(prueba=False, todo=False):
     pd.DataFrame(filas).to_csv(csv, index=False, encoding="utf-8-sig")
     sha_csv = sha256(csv)
     html = carpeta / f"{nombre}.html"
-    html.write_text(html_pdf(n, rel, registrado, tarjetas, sha_csv), encoding="utf-8")
+    html.write_text(html_pdf(n, rel, registrado, tarjetas, sha_csv, html_erratas(rel, sufijo)), encoding="utf-8")
     pdf = carpeta / f"{nombre}.pdf"
     edge(html, pdf, pdf=True)
     sha_pdf = sha256(pdf)
@@ -272,7 +296,7 @@ def emitir(prueba=False, todo=False):
     edge(tar, png, pdf=False)
     url_pdf = f"{SITIO}/sellos/{rel}/{pdf.name}"
     post = texto_linkedin(n, rel, registrado, items, url_pdf, sha_pdf)
-    (carpeta / "publicacion_linkedin.txt").write_text(post, encoding="utf-8")
+    (carpeta / f"publicacion_linkedin{sufijo}.txt").write_text(post, encoding="utf-8")
     fila = {"n": str(n), "relevamiento": str(rel), "registrado": registrado, "pdf": pdf.name, "sha256_pdf": sha_pdf, "csv": csv.name,
             "sha256_csv": sha_csv, "ots_pdf": "", "ots_csv": "", "bitcoin": "", "wayback_pdf": "", "post_texto": post,
             "post_url": "", "post_rem_url": "", "post_real_url": ""}
@@ -346,7 +370,7 @@ def main():
         L.append(f"Emisión automática desactivada: para sellar el pronóstico de {rel}, revisarlo y correr a mano "
                  f"'py -3.13 emitir_pronostico.py --emitir' (con el OK de Marcos). Sello del mes: "
                  f"{'ya emitido' if rel in set(reg['relevamiento']) else 'pendiente'}.")
-    elif hoy.normalize() >= desde and rel not in set(reg["relevamiento"]):
+    elif hoy.normalize() >= desde:                       # si el relevamiento ya tiene sello, sale el 1B, 1C... (30-oct-2026)
         rem_pub = str(pd.Timestamp(pd.read_parquet(C / "rem_normalizada.parquet", columns=["mes_relevamiento"])["mes_relevamiento"].max()).to_period("M"))
         if rem_pub >= rel:
             L.append(f"No se emite: el REM de {rel} ya está publicado (llegamos tarde este mes).")
@@ -365,7 +389,7 @@ def main():
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(0, f"Pronóstico n.º {nuevo['n']} sellado.\n\nPublicalo en LinkedIn con la imagen de:\n{carpeta}\n\n"
-                                                "El texto está en publicacion_linkedin.txt", "Datos Con Método: pronóstico sellado", 0x40)
+                                                "El texto está en publicacion_linkedin*.txt", "Datos Con Método: pronóstico sellado", 0x40)
         except Exception:
             pass
 
