@@ -42,10 +42,11 @@
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <div class="nav-menu" id="menu-pron">
           <a href="#mes-en-curso">Mes en curso</a>
-          <a href="#pronosticos">Próximos 12 meses</a>
+          <a href="#el-rem">El REM</a>
           <a href="#ultimo-rem">Último REM</a>
           <a href="#resultados">Resultados</a>
           <a href="#historial">Historial</a>
+          <a href="#pronosticos">Próximo REM</a>
           <a href="#sellos">Verificación</a>
         </div>
       </div>
@@ -81,9 +82,9 @@
     </div>
   </section>
 
-  <section id="pronosticos" class="seccion">
+  <section id="el-rem" class="seccion">
     <div class="envoltura">
-      <h2>Pronósticos próximos 12 meses</h2>
+      <h2>El REM y nuestros datos</h2>
       <div class="texto-rem">
         <h3>¿Qué es el REM?</h3>
         <p>REM es la sigla de <strong>Relevamiento de Expectativas de Mercado</strong>. Todos los meses, el Banco Central (BCRA) les pide a unas 45 consultoras, bancos y centros de investigación del país y del exterior que estimen las principales variables de la economía argentina (inflación, dólar, actividad, tasas, resultado fiscal y comercio exterior) en los próximos 1 a 12 meses y a dos años. Cada mes los participantes actualizan sus pronósticos, y el BCRA publica la mediana de todas las respuestas como dato de referencia. Además mide quiénes acertaron más y arma con ellos un "Top 10".</p>
@@ -94,10 +95,6 @@
         <p>Abajo mostramos cuántas series y datos mantenemos en nuestra base, cuántas fuentes están al día y el estado de los datos necesarios para calcular nuestros pronósticos.</p>
       </div>
       <div class="tiles tiles-sitio" id="tiles" aria-live="polite"></div>
-      <h3 class="pron-tit">Pronóstico próximo REM por Datos Con Método</h3>
-      <p class="intro" id="pron-intro">Estimaciones de Datos Con Método para el próximo REM vs. lo estimado para el mismo período en el REM del mes anterior.</p>
-      <div class="tarjetas" id="tarjetas"></div>
-      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
     </div>
   </section>
 
@@ -109,7 +106,7 @@
       <div class="historias" id="ur-filas"></div>
       <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
       <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja del medio (80% de las consultoras) <span class="lr-linea"></span>del pronóstico más bajo al más alto
-        <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM* <span class="lr-real"></span>dato real</p>
+        <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM*</p>
       <p class="nota">Detalle de todos los horizontes y variables en la tabla "Comparación de pronósticos": <a href="descargas/comparacion_pronosticos.xlsx" download>descargar en Excel</a> (también en <a href="descargas/comparacion_pronosticos.zip" download>CSV comprimido</a>).</p>
     </div>
   </section>
@@ -120,6 +117,8 @@
       <p class="intro" id="re-titular">Cada vez que sale un dato oficial, vemos quién estuvo más cerca: nosotros o la mediana de las consultoras.</p>
       <div class="historias" id="re-filas"></div>
       <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja del medio (80% de las consultoras) <span class="lr-linea"></span>del pronóstico más bajo al más alto
+        <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM* <span class="lr-real"></span>dato real</p>
       <p class="nota">Se compara el último pronóstico hecho antes de que se conociera el dato. Los resultados de los últimos meses, en la sección siguiente.</p>
     </div>
   </section>
@@ -139,7 +138,16 @@
     </div>
   </section>
 
-  <section id="sellos" class="seccion">
+  <section id="pronosticos" class="seccion">
+    <div class="envoltura">
+      <h2 id="pron-tit">Pronóstico para el próximo REM</h2>
+      <p class="intro" id="pron-intro">Estimaciones de Datos Con Método para el próximo REM vs. la mediana del último REM publicado para el mismo período.</p>
+      <div class="tarjetas" id="tarjetas"></div>
+      <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
+    </div>
+  </section>
+
+  <section id="sellos" class="seccion seccion-alt">
     <div class="envoltura">
       <h2>Transparencia: verificación de que las predicciones no fueron modificadas post publicación</h2>
       <p class="intro">Una vez por mes, antes de que el BCRA publique el REM, congelamos nuestro pronóstico en un PDF y lo sellamos en la cadena de Bitcoin con <a href="https://opentimestamps.org" rel="noopener">OpenTimestamps</a>. Abajo dejamos los dos archivos necesarios para verificar la fecha de subida.</p>

@@ -86,15 +86,26 @@ def rem_ultimo():
 
 
 # ---------------------------------------------------------------- 1) pronósticos de hoy
+def rem_por_periodo(variable):
+    """Mediana del último REM publicado para cada mes ("AAAA-MM") y para "12m" (8-nov-2026). Las tarjetas de inflación
+    buscaban el REM por horizonte (m0, m1...) en el registro del relevamiento en curso; si nuestro último pronóstico era de
+    otro relevamiento (en noviembre, sin el IPC de octubre, sigue siendo el de octubre), los valores quedaban corridos un mes."""
+    r = pd.read_parquet(C / "rem_normalizada.parquet")
+    r = r[(r["variable_std"] == variable) & (r["mes_relevamiento"] == r["mes_relevamiento"].max())]
+    m = r[(r["tipo_periodo"] == "fecha") & (r["unidad"] == "var. % mensual")]
+    s = m.groupby(pd.to_datetime(m["periodo_fin"]).dt.strftime("%Y-%m"))["mediana"].mean()
+    s["12m"] = r[(r["tipo_periodo"] == "proximos_meses") & (r["horizonte_meses"] == 12)]["mediana"].mean()
+    return s
+
+
 def pronosticos():
     tarjetas = []
     # inflación: nuestro pronóstico de la inflación GENERAL (desde el 30-oct-2026, Marcos: G de replicar_general.py =
     # desde abajo -núcleo N + regulados + estacionales- en m0-m2 e I desde m3; años, 12 y 24 meses sobre ese camino)
     i, f_i = ultimo_registro("general")
     i = i.rename(columns={"G": "pronostico_inflacion"})
-    a, _ = ultimo_registro("pronosticos")
     if len(i):
-        ra = a.set_index("H")["rem_anterior"] if len(a) else pd.Series(dtype=float)
+        ra = rem_por_periodo("ipc_general")
         # años (dic/dic) y próx. 24 meses (30-oct-2026): REM anterior = mediana del último REM publicado
         r = pd.read_parquet(C / "rem_normalizada.parquet")
         r = r[(r["variable_std"] == "ipc_general") & (r["mes_relevamiento"] == r["mes_relevamiento"].max())]
@@ -108,7 +119,7 @@ def pronosticos():
             elif H == "24m":
                 et, rem = "Próx. 24 meses (2.º año)", ra_24
             else:
-                et, rem = ("Próx. 12 meses" if H == "12m" else x["objetivo"]), ra.get(H, np.nan)
+                et, rem = ("Próx. 12 meses" if H == "12m" else x["objetivo"]), ra.get("12m" if H == "12m" else str(x["objetivo"]), np.nan)
             filas.append({"periodo": et, "nuestro": x["pronostico_inflacion"], "rem": rem})
         tarjetas.append({"clave": "inflacion", "titulo": "Inflación", "unidad": "% mensual (12 y 24 meses y años: % acumulado)",
                          "filas": filas, "corrida": f_i,
@@ -116,13 +127,20 @@ def pronosticos():
     # inflación núcleo (30-oct-2026, Marcos: se publica porque el REM la pide; en el sitio sí, en el sello todavía no)
     nu, f_nu = ultimo_registro("nucleo")
     if len(nu):
+        rn = rem_por_periodo("ipc_nucleo")      # REM de la tarjeta = último REM publicado, por período (8-nov-2026)
+        r = pd.read_parquet(C / "rem_normalizada.parquet")
+        r = r[(r["variable_std"] == "ipc_nucleo") & (r["mes_relevamiento"] == r["mes_relevamiento"].max())]
+        rn_anio = r[r["tipo_periodo"] == "anio"].assign(a=lambda z: z["periodo_original"].astype(str).str[:4]).groupby("a")["mediana"].mean()
+        rn_24 = r[(r["tipo_periodo"] == "proximos_meses") & (r["horizonte_meses"] == 24)]["mediana"].mean()
         filas = []
         for _, x in nu.iterrows():
             H = str(x["H"])
             et = {"año": f"Año {x['objetivo']} (dic/dic)", "año1": f"Año {x['objetivo']} (dic/dic)", "año2": f"Año {x['objetivo']} (dic/dic)",
                   "12m": "Próx. 12 meses", "24m": "Próx. 24 meses (2.º año)"}.get(H, x["objetivo"])
             orden_n = (1, "") if H == "12m" else (3, "") if H == "24m" else (2, str(x["objetivo"])) if H.startswith("año") else (0, str(x["objetivo"]))
-            filas.append({"periodo": et, "nuestro": x["N"], "rem": x["rem_anterior"], "_o": orden_n})
+            rem = (rn_anio.get(str(x["objetivo"]), np.nan) if H.startswith("año") else rn_24 if H == "24m"
+                   else rn.get("12m" if H == "12m" else str(x["objetivo"]), np.nan))
+            filas.append({"periodo": et, "nuestro": x["N"], "rem": rem, "_o": orden_n})
         filas = [{k: v for k, v in f.items() if k != "_o"} for f in sorted(filas, key=lambda f: f["_o"])]   # como la general
         tarjetas.append({"clave": "nucleo", "titulo": "Inflación núcleo", "unidad": "% mensual (12 y 24 meses y años: % acumulado)",
                          "filas": filas, "corrida": f_nu, "relevamiento": nu["relevamiento"].iloc[0]})
@@ -240,8 +258,17 @@ def indicadores():
     try:                                                    # súper (índice SEPA propio, mes en curso)
         t, _ = ultimo_registro("termometro")
         if len(t):
-            agregar("super", "Precios en supermercados", t.iloc[0]["termometro_pct"], "% en el mes", str(t.iloc[0]["relevamiento"]),
-                    "Lo que va del mes contra el mes anterior (SEPA)", "Datos Con Método sobre SEPA", 2)
+            # mes ya cerrado (8-nov-2026, Marcos): el mes nuevo no tiene termómetro hasta juntar 12 días (indice_sepa.py);
+            # mientras tanto se muestra el mes anterior COMPLETO, dicho así, en vez de "lo que va del mes"
+            m = pd.Period(str(t.iloc[0]["relevamiento"]), "M")
+            valor, texto = t.iloc[0]["termometro_pct"], "Lo que va del mes contra el mes anterior (SEPA)"
+            if m < pd.Period(pd.Timestamp.today(), "M"):
+                sm = pd.read_parquet(C / "sepa_indice_mensual.parquet")
+                sm = sm[(sm["region"] == "Nacional") & (sm["mes"] == str(m))]["variacion_pct"].dropna()
+                if len(sm):
+                    valor = sm.iloc[0]
+                texto = f"{MESES_LARGOS[m.month - 1].capitalize()} completo contra {MESES_LARGOS[(m - 1).month - 1]} (SEPA)"
+            agregar("super", "Precios en supermercados", valor, "% en el mes", str(m), texto, "Datos Con Método sobre SEPA", 2)
     except Exception:
         pass
     try:                                                    # resultado primario acumulado del año (IMIG)
@@ -259,7 +286,7 @@ def indicadores():
         u = de.iloc[-1]
         q = pd.Period(u["trimestre"], "Q")
         a = de[de["trimestre"] == str(q - 4)]
-        agregar("desempleo", "Desocupación", u["desocupacion"], "% de la población activa", u["trimestre"],
+        agregar("desempleo", "Desocupación", u["desocupacion"], "% de la población activa", u["trimestre"].replace("Q", "T"),
                 (f"Un año antes: {a['desocupacion'].iloc[0]:.1f}%".replace(".", ",") if len(a) else ""), "INDEC (EPH)", 1)
         s = pd.read_parquet(C / "sipa.parquet")
         us = s.iloc[-1]
@@ -1347,7 +1374,7 @@ def vista_previa(resumen, destino):
              f'<div class="m">{logo}<span>Datos Con <b>Método</b></span></div>'
              '<h1>Pronósticos de la economía argentina</h1>'
              f'<p class="s">Hechos con datos públicos y comparados con el REM del BCRA · {_esc(_per(resumen["generado"][:10]))}</p>'
-             '<table><tr><th></th><th></th><th class="n">Nuestro</th><th class="r">REM ant.</th></tr>' + "".join(filas) + '</table></div>'
+             f'<table><tr><th></th><th></th><th class="n">Nuestro</th><th class="r">Último REM ({_esc(_per(resumen["rem_ultimo"]))})</th></tr>' + "".join(filas) + '</table></div>'
              '<div class="pie">www.datosconmetodo.com</div></body></html>')
     tmp = destino.parent / "_vista_previa.html"
     tmp.write_text(html_, encoding="utf-8")
@@ -1448,6 +1475,8 @@ def semaforo_datos(cat):
 # ---------------------------------------------------------------- 5g) el relato de la portada: último REM vs nosotros y últimos datos reales
 # (pedido de Marcos, 24-oct-2026: Variables de hoy -> Pronóstico para el próximo REM -> REM nuevo vs nuestras estimaciones
 #  -> Datos reales nuevos vs nuestras predicciones y las del REM). Sale de la tabla de comparación (tabla_comparacion()).
+#  Desde el 8-nov-2026 (Marcos): primero lo que ya pasó y después lo que viene. Hoy -> Mes en curso -> El REM y nuestros datos
+#  -> Último REM -> Resultados -> Historial -> Pronóstico para el próximo REM -> Transparencia -> Datos -> Método.
 MESES_L = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 CLAVE_VAR = {"Inflación mensual (IPC)": "inflacion", "Inflación próximos 12 meses": "inflacion",
              "Dólar mayorista (promedio del mes)": "dolar", "Dólar mayorista (diciembre)": "dolar", "PIB trimestral (s.e.)": "pib",

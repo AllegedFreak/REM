@@ -156,13 +156,16 @@
   }
   function tarjetas(R) {
     const cont = $("#tarjetas");
-    $("#pron-intro").textContent = `Estimaciones de Datos Con Método para el próximo REM vs. lo estimado para el mismo período en el REM del mes anterior (${mesTxt(R.rem_ultimo)}).`;
+    // el próximo REM es el del mes de la corrida (el relevamiento en curso); la referencia, el último REM publicado (8-nov-2026)
+    const proximo = mesTxt(R.generado);
+    $("#pron-tit").textContent = `Pronóstico para el próximo REM (${proximo})`;
+    $("#pron-intro").textContent = `Estimaciones de Datos Con Método para el REM de ${proximo} vs. la mediana del último REM publicado (${mesTxt(R.rem_ultimo)}) para el mismo período.`;
     for (const t of R.pronosticos) {
       const d = DEC[t.clave] ?? 2;
       const prim = t.filas.find((f) => f.nuestro !== null) || t.filas[0];
       const tb = el("table", { class: "tabla" },
         el("thead", {}, el("tr", {}, el("th", { text: "Período" }), el("th", { class: "num", title: "Datos Con Método" }, el("span", { class: "marca-nuestro", text: "DCM*" })),
-          el("th", { class: "num", title: "Mediana del REM del mes anterior" }, el("span", { class: "marca-rem", text: "REM ant." })))));
+          el("th", { class: "num", title: "Mediana del último REM publicado por el BCRA" }, el("span", { class: "marca-rem", text: `Último REM (${mesTxt(R.rem_ultimo)})` })))));
       const tbody = el("tbody");
       for (const f of t.filas) {
         tbody.append(el("tr", {}, el("td", { text: periodoTxt(f.periodo) }), el("td", { class: "num", text: fv(t.clave, f.nuestro, d) }),
