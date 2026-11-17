@@ -42,6 +42,7 @@ PASOS = [
     ("Pronóstico del resultado primario (IMIG)", "replicar_fiscal.py", "informe_fiscal.txt"),
     ("Estimaciones agrícolas (Ministerio de Agricultura)", "actualizar_estimaciones_agricolas.py", "informe_estimaciones_agricolas.txt"),
     ("Pronóstico de exportaciones e importaciones", "replicar_comercio.py", "informe_comercio.txt"),
+    ("Emisión al Tesoro (datos para la inflación)", "emision_tesoro.py --solo-datos", "informe_emision_datos.txt"),   # 17-nov-2026: I usa emiT12
     ("Réplica del REM y registro del pronóstico", "replicar_rem.py", "informe_replica_rem.txt"),   # usa todo lo anterior (~1,5 min)
     ("Pronóstico de la inflación núcleo", "replicar_nucleo.py", "informe_nucleo.txt"),   # usa pronostico_insumos.csv de replicar_rem (29-oct-2026)
     ("Pronóstico de la inflación general (opción 3)", "replicar_general.py", "informe_general_inflacion.txt"),   # usa N y el I de replicar_rem (30-oct-2026)
@@ -51,7 +52,7 @@ PASOS = [
     ("Respaldo (OneDrive y disco F:)", "respaldo.py", "informe_respaldo.txt"),   # al final: copia lo actualizado hoy
     ("Subir scripts a GitHub (sin datos)", "subir_cambios.py", "informe_git.txt"),   # último: solo código y CLAUDE.md
 ]
-LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ERROR", "FALLA", "No se pudo",
+LINEAS_CLAVE = ("Último relevamiento", "Último mes con dato", "Meses nuevos", "ALERTAS", "ALERTA R0", "Qué hacer:", "Control del sello", "FALTA ", "Emisión mensual actualizada", "ERROR", "FALLA", "No se pudo",
                 "Excel", "IPC descargado", "Brecha", "Series guardadas", "Sin cambios", "Serie encadenada", "Días guardados",
                 "Sin días nuevos", "=== ÍNDICE SEPA", "Variación mensual", "Cambios de precio", "Histórico completo", "Pronóstico registrado", "Relevamientos evaluados", "Futuros guardados", "Curva del", "SEMÁFORO", "La canasta del súper", "A del mes en curso, sin", "A corregida hacia", "Respaldo terminado", "2) Disco de respaldo", "Sin cambios: no se sube", "Commit:", "Subido a", "FRENADO", "PRONÓSTICO DE HOY (TAMAR", "Colocaciones guardadas", "IMIG: versión nueva", "AVISO F0", "Sitio publicado", "Fuentes atrasadas", "Pronóstico sellado n.º", "Huella SHA-256", "PUBLICAR EN LINKEDIN", "anclado en Bitcoin", "Último trimestre con dato", "Trimestres nuevos", "PRONÓSTICO DE HOY (desocupación", "Núcleo 20", "General 20")
 

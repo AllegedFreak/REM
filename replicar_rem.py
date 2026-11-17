@@ -666,6 +666,67 @@ def termometro(O, t):
     return L
 
 
+# ALERTA R01 (17-nov-2026): un insumo de I vacío en el relevamiento en curso. No se rellena (principio 2), pero se avisa:
+# del 13 al 17-nov-2026 faltó emiT12 (emision_mensual.csv sin octubre) y la general quedó vacía en m3-m6, años y 24 meses
+# sin que nadie lo viera. Cada variable: (qué es, de dónde sale, qué hacer).
+FUENTE_INSUMO = {
+    "nuc1": ("núcleo de t-1", "IPC del INDEC (actualizar_ipc.py)", "esperar el IPC o correr actualizar_ipc.py"),
+    "nuc_2": ("núcleo de t-2", "IPC del INDEC (actualizar_ipc.py)", "correr actualizar_ipc.py"),
+    "nuc_3": ("núcleo de t-3", "IPC del INDEC (actualizar_ipc.py)", "correr actualizar_ipc.py"),
+    "p12": ("inflación del mismo mes un año antes", "IPC del INDEC (actualizar_ipc.py)", "correr actualizar_ipc.py"),
+    "dev0": ("devaluación del mes en curso", "A3500, BCRA (actualizar_bcra.py)", "correr actualizar_bcra.py"),
+    "dev1": ("devaluación del mes anterior", "A3500, BCRA (actualizar_bcra.py)", "correr actualizar_bcra.py"),
+    "emiT12": ("emisión al Tesoro, 12 meses", "datos\\emision_mensual.csv (emision_tesoro.py)", "correr py -3.13 emision_tesoro.py"),
+    "ei_prom_m": ("expectativa de inflación de los hogares", "UTDT (guardar_historicas.py --solo-utdt)",
+                  "correr guardar_historicas.py --solo-utdt"),
+    "inf12": ("inflación de los últimos 12 meses", "IPC del INDEC (actualizar_ipc.py)", "correr actualizar_ipc.py"),
+    "ei_prom_l": ("expectativa de inflación de los hogares (12 meses)", "UTDT (guardar_historicas.py --solo-utdt)",
+                  "correr guardar_historicas.py --solo-utdt"),
+    "fut12": ("devaluación esperada a un año", "futuros CEM (actualizar_futuros.py)", "correr actualizar_futuros.py"),
+}
+ALERTAS_INSUMOS = []
+
+
+def faltan_insumos(insumos, t):
+    """Anota en ALERTAS_INSUMOS cada variable de I vacía hoy, con los horizontes afectados y la última fecha con dato."""
+    vacias = {}
+    for f in insumos:
+        for v in (I_12 if f["H"] == "12m" else I_MENSUAL):
+            if pd.isna(f.get(v, np.nan)):
+                vacias.setdefault(v, []).append(f["H"])
+    for v, hs in vacias.items():
+        que, fuente, hacer = FUENTE_INSUMO.get(v, (v, "?", "revisar con Claude"))
+        ultimo = ""
+        if v == "emiT12":
+            try:
+                e = pd.read_csv(D.CARPETA / "emision_mensual.csv", index_col=0)["tesoro_pct"].dropna()
+                ultimo = f" Último mes completo: {e.index[-1]}; hace falta {t - 1}."
+            except Exception:
+                pass
+        ALERTAS_INSUMOS.append(
+            f"ALERTA R01: falta {v} ({que}) para el relevamiento {t}, horizontes {', '.join(hs)}.\n"
+            f"   Fuente: {fuente}.{ultimo}\n"
+            f"   Efecto: I sin calcular en esos horizontes; si incluye m3-m6, la general queda vacía desde m3, en los años y en 24 meses "
+            f"(y la TAMAR a 12 meses y diciembre).\n"
+            f"   Qué hacer: {hacer}")
+
+
+def avisar_insumos(t):
+    """Cartel de Windows (con --aviso), una sola vez por combinación de faltantes."""
+    clave = f"{t}|" + "|".join(sorted(a.split(" (")[0] for a in ALERTAS_INSUMOS))
+    marca = D.CARPETA / "ultimo_aviso_insumos.txt"
+    if marca.exists() and marca.read_text(encoding="utf-8") == clave:
+        return
+    marca.write_text(clave, encoding="utf-8")
+    try:
+        import ctypes
+        msg = ("Al pronóstico de inflación le faltan datos:\n\n" + "\n".join(a.split("\n")[0] for a in ALERTAS_INSUMOS)
+               + "\n\nDetalle en datos\\informe_replica_rem.txt (o pedile a Claude que lo revise).")
+        ctypes.windll.user32.MessageBoxW(0, msg[:900], "Inflación: faltan datos", 0x30 | 0x1000)
+    except Exception:
+        pass
+
+
 def main():
     # ---------- datos ----------
     pr = D.precios()
@@ -1178,6 +1239,7 @@ def main():
         # registro del pronóstico ANTES de que salga el REM de t: es la prueba limpia hacia adelante (sección 7)
         # datos con que se armó el pronóstico de hoy (se pisa en cada corrida; el pronóstico queda en el registro)
         pd.DataFrame(insumos).to_csv(D.CARPETA / "pronostico_insumos.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
+        faltan_insumos(insumos, t)
         reg = pd.DataFrame(registro)
         reg.to_csv(REGISTRO, mode="a", header=not REGISTRO.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
         L.append(f"   Pronóstico registrado en datos\\{REGISTRO.name} ({len(reg)} filas).")
@@ -1220,9 +1282,15 @@ def main():
                 e["A"] = rg.get(e["H"], np.nan)
         O_hoy = pd.concat([O, pd.DataFrame(extra)], ignore_index=True)
     L += grilla_anual(O_hoy, t, pi, rem_all)
+    L += [""] + ALERTAS_INSUMOS + [f"ALERTAS: {len(ALERTAS_INSUMOS)} (faltan datos del pronóstico de inflación)"
+                                   if ALERTAS_INSUMOS else "ALERTAS: ninguna. Todo en orden."]
     texto = "\n".join(L)
     print(texto)
     INFORME.write_text(texto, encoding="utf-8")
+    if ALERTAS_INSUMOS:
+        if "--aviso" in sys.argv:
+            avisar_insumos(t)
+        sys.exit(1)      # actualizar_todo.py lo muestra como "CON ALERTAS"
 
 
 if __name__ == "__main__":

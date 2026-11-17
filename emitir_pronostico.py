@@ -16,6 +16,7 @@
 #                                                     la fecha está agendada. Decisión de Marcos, 30-oct-2026)
 #      py -3.13 emitir_pronostico.py [--aviso]       (en actualizar_todo: NO emite; solo completa los sellos de Bitcoin y del
 #                                                     Archivo de Internet de los ya emitidos)
+#      py -3.13 emitir_pronostico.py --emitir --sellar-incompleto   (con el OK de Marcos: sella aunque falten períodos; quedan '—')
 #      py -3.13 emitir_pronostico.py --prueba        (arma todo en datos\sellos\_prueba, sin numerar, sellar ni registrar)
 #      py -3.13 emitir_pronostico.py --linkedin AAAA-MM URL   (y --linkedin-rem / --linkedin-real)
 import hashlib
@@ -145,6 +146,93 @@ def html_erratas(rel, sufijo):
     return f"<div class='erratas'><h3>{lineas[0]}</h3>{''.join(cuerpo)}</div>"
 
 
+# ---- control del sello (17-nov-2026, Marcos): ¿hay pronóstico para cada variable y cada período que pide el REM? ----
+# Referencia = lo que preguntó el último REM publicado, corrido al relevamiento que se sella (meses +1; años igual, salvo que
+# cambie el año; trimestres iguales -> si el REM cambia de trimestres, el control lo marca y se revisa a mano).
+# Si falta algo, --emitir NO sella. Con el OK de Marcos: --emitir --sellar-incompleto sella lo que hay y lo que falta queda
+# "—" con una nota dentro del PDF. Aunque esté completo, el sello sale solo a mano (--emitir), nunca en la corrida diaria.
+CLAVE_REM = {"ipc_general": "inflacion", "ipc_nucleo": "nucleo", "tipo_cambio": "dolar", "desocupacion": "desempleo",
+             "tasa_tamar": "tasa", "importaciones": "importaciones", "exportaciones": "exportaciones",
+             "resultado_primario": "fiscal"}                       # pib: trimestres -> "pib", años -> "pib_anual"
+NOMBRE = {"inflacion": "Inflación", "nucleo": "Inflación núcleo", "dolar": "Dólar mayorista (A3500)", "pib": "PIB trimestral",
+          "pib_anual": "PIB anual", "desempleo": "Desocupación (EPH)", "tasa": "Tasa TAMAR", "importaciones": "Importaciones",
+          "exportaciones": "Exportaciones", "fiscal": "Resultado primario (SPN)"}
+ROMANO = {"I": 1, "II": 2, "III": 3, "IV": 4}
+
+
+def periodos_pedidos(rel):
+    """{clave de tarjeta: [etiquetas de período]} que pide el REM para el relevamiento rel, y el mes del REM de referencia."""
+    rel = pd.Period(rel, "M")
+    r = pd.read_parquet(C / "rem_normalizada.parquet")
+    r["mes"] = pd.to_datetime(r["mes_relevamiento"]).dt.to_period("M")
+    ref = r[r["mes"] < rel]["mes"].max()
+    r = r[r["mes"] == ref]
+    corrimiento, anios = rel - ref, rel.year - ref.year
+    pedidos = {}
+    for _, x in r.iterrows():
+        v, tp, po = x["variable_std"], x["tipo_periodo"], str(x["periodo_original"])
+        clave = ("pib" if tp == "trimestre" else "pib_anual") if v == "pib" else CLAVE_REM.get(v)
+        if clave is None:
+            continue
+        if tp == "fecha":
+            et = str(pd.Period(po[:7], "M") + corrimiento.n)
+        elif tp == "anio":
+            y = int(po[:4]) + anios
+            et = (f"Año {y} (dic/dic)" if clave in ("inflacion", "nucleo") else f"Fin de {y} (dic)" if clave in ("dolar", "tasa")
+                  else f"{y} T4" if clave == "desempleo" else str(y))
+        elif tp == "proximos_meses":
+            et = "Próx. 12 meses" if int(x["horizonte_meses"]) == 12 else "Próx. 24 meses (2.º año)"
+        elif tp == "trimestre":                                    # "Trim. III-26" -> "2026 T3"
+            rom, yy = po.split()[-1].split("-")
+            et = f"20{yy} T{ROMANO[rom]}"
+        else:
+            continue
+        if et not in pedidos.setdefault(clave, []):
+            pedidos[clave].append(et)
+    return pedidos, ref
+
+
+def control_sello(tarjetas, rel):
+    """Devuelve (faltan, sobran, total pedido, REM de referencia). faltan = [(clave, título, período, motivo)]."""
+    pedidos, ref = periodos_pedidos(rel)
+    por_clave = {t["clave"]: t for t in tarjetas}
+    faltan, sobran = [], []
+    for clave, pers in pedidos.items():
+        t = por_clave.get(clave)
+        if t is None:
+            faltan += [(clave, NOMBRE.get(clave, clave), p, "sin pronóstico registrado este mes") for p in pers]
+            continue
+        filas = {f["periodo"]: f for f in t["filas"]}
+        for p in pers:
+            f = filas.get(p)
+            if f is None:
+                faltan.append((clave, t["titulo"], p, "el REM lo pide y no hay fila"))
+            elif f["nuestro"] is None or pd.isna(f["nuestro"]):
+                faltan.append((clave, t["titulo"], p, "valor vacío"))
+        sobran += [(t["titulo"], f["periodo"]) for f in t["filas"] if f["periodo"] not in pers]
+    return faltan, sobran, sum(len(v) for v in pedidos.values()), ref
+
+
+def texto_control(control, rel):
+    faltan, sobran, total, ref = control
+    L = [f"Control del sello ({rel}): {total - len(faltan)} de {total} períodos que pide el REM tienen pronóstico "
+         f"(referencia: lo que preguntó el REM de {ref}, corrido a {rel})."]
+    L += [f"   FALTA {tit} · {per_txt(p)}: {motivo}" for _, tit, p, motivo in faltan]
+    L += [f"   Aviso: {tit} · {per_txt(p)} no figura entre lo que pide el REM (se sella igual)" for tit, p in sobran]
+    if not faltan:
+        L.append("   Completo: se puede sellar con --emitir (solo con el OK de Marcos).")
+    return L
+
+
+def html_faltantes(faltan):
+    """Nota dentro del PDF cuando se sella incompleto con el OK de Marcos."""
+    if not faltan:
+        return ""
+    items = "".join(f"<li>{tit} · {per_txt(p)}</li>" for _, tit, p, _ in faltan)
+    return ("<div class='erratas'><h3>Períodos sin estimar</h3><p>Al momento del registro faltaban datos públicos para estimar "
+            f"estos períodos que pide el REM; figuran con «—»:</p><ol>{items}</ol></div>")
+
+
 def html_pdf(n, rel, registrado, tarjetas, sha_csv, erratas=""):
     bloques = []
     for t in tarjetas:
@@ -256,7 +344,8 @@ def sitio_publicado():
         return False
 
 
-def emitir(prueba=False, todo=False):
+def emitir(prueba=False, todo=False, incompleto=False):
+    """Devuelve (fila del registro, carpeta, líneas del control). Si falta algo y no hay --sellar-incompleto: (None, None, líneas)."""
     import publicar_web
     from sello_ots import sellar
     hoy = pd.Timestamp.now()
@@ -266,6 +355,16 @@ def emitir(prueba=False, todo=False):
     tarjetas = publicar_web.pronosticos()
     tarjetas = [t for t in tarjetas if str(t.get("relevamiento")) == str(rel) and (todo or t.get("sellar", True))]   # PIB anual y núcleo: no se sellan hasta que Marcos diga
     # (--prueba --todo: muestra cómo quedaría con todo, sin sellar ni registrar)
+    control = control_sello(tarjetas, rel)
+    lineas = texto_control(control, rel)
+    faltan = control[0]
+    if faltan and not (prueba or incompleto):
+        return None, None, lineas + [f"FRENADO: no se selló nada porque faltan {len(faltan)} períodos. Si Marcos da el OK para sellar "
+                                     "lo que hay: py -3.13 emitir_pronostico.py --emitir --sellar-incompleto"]
+    for clave, tit, p, _ in faltan:                      # lo que falta queda "—" en el PDF y vacío en el CSV, en su tarjeta
+        t = next((t for t in tarjetas if t["clave"] == clave), None)
+        if t is not None and p not in {f["periodo"] for f in t["filas"]}:
+            t["filas"].append({"periodo": p, "nuestro": None, "rem": None})
     for t in tarjetas:                                   # resultado primario en miles de millones de $, como lo pide el REM (30-oct-2026)
         if t["clave"] == "fiscal":
             t["unidad"] = "miles de millones de $, año calendario"
@@ -285,7 +384,7 @@ def emitir(prueba=False, todo=False):
     pd.DataFrame(filas).to_csv(csv, index=False, encoding="utf-8-sig")
     sha_csv = sha256(csv)
     html = carpeta / f"{nombre}.html"
-    html.write_text(html_pdf(n, rel, registrado, tarjetas, sha_csv, html_erratas(rel, sufijo)), encoding="utf-8")
+    html.write_text(html_pdf(n, rel, registrado, tarjetas, sha_csv, html_erratas(rel, sufijo) + html_faltantes(faltan)), encoding="utf-8")
     pdf = carpeta / f"{nombre}.pdf"
     edge(html, pdf, pdf=True)
     sha_pdf = sha256(pdf)
@@ -308,7 +407,7 @@ def emitir(prueba=False, todo=False):
                 fila[clave] = f"ERROR {type(e).__name__}"
         reg = pd.concat([reg, pd.DataFrame([fila])], ignore_index=True)
         reg.to_csv(REGISTRO, index=False, encoding="utf-8-sig")
-    return fila, carpeta
+    return fila, carpeta, lineas
 
 
 def mantenimiento():
@@ -356,8 +455,8 @@ def main():
             print(f"Guardado {col} del pronóstico de {mes}: {url}")
             return
     if "--prueba" in args:
-        fila, carpeta = emitir(prueba=True, todo="--todo" in args)
-        print(f"Prueba armada en {carpeta}\n\n{fila['post_texto']}\n\n({len(fila['post_texto'])} caracteres)")
+        fila, carpeta, control = emitir(prueba=True, todo="--todo" in args)
+        print("\n".join(control) + f"\n\nPrueba armada en {carpeta}\n\n{fila['post_texto']}\n\n({len(fila['post_texto'])} caracteres)")
         return
     nuevo = None
     hoy = pd.Timestamp.now()
@@ -370,12 +469,21 @@ def main():
         L.append(f"Emisión automática desactivada: para sellar el pronóstico de {rel}, revisarlo y correr a mano "
                  f"'py -3.13 emitir_pronostico.py --emitir' (con el OK de Marcos). Sello del mes: "
                  f"{'ya emitido' if rel in set(reg['relevamiento']) else 'pendiente'}.")
+        if rel not in set(reg["relevamiento"]):          # control diario: solo informa, no frena ni sella (17-nov-2026)
+            try:
+                import publicar_web
+                tj = [t for t in publicar_web.pronosticos() if str(t.get("relevamiento")) == rel and t.get("sellar", True)]
+                L += texto_control(control_sello(tj, rel), rel)
+            except Exception as e:
+                L.append(f"Control del sello: no se pudo hacer ({type(e).__name__}: {e})")
     elif hoy.normalize() >= desde:                       # si el relevamiento ya tiene sello, sale el 1B, 1C... (30-oct-2026)
         rem_pub = str(pd.Timestamp(pd.read_parquet(C / "rem_normalizada.parquet", columns=["mes_relevamiento"])["mes_relevamiento"].max()).to_period("M"))
         if rem_pub >= rel:
             L.append(f"No se emite: el REM de {rel} ya está publicado (llegamos tarde este mes).")
         else:
-            nuevo, carpeta = emitir()
+            nuevo, carpeta, control = emitir(incompleto="--sellar-incompleto" in args)
+            L += control
+        if nuevo:
             L += [f"Pronóstico sellado n.º {nuevo['n']} (relevamiento {rel}) emitido. Archivos en {carpeta}",
                   f"Huella SHA-256 del PDF: {nuevo['sha256_pdf']}", f"OpenTimestamps: {nuevo['ots_pdf'] or 'sin sello'}",
                   "PUBLICAR EN LINKEDIN (texto abajo, con la imagen PNG de la carpeta):", "", nuevo["post_texto"], ""]

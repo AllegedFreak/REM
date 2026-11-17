@@ -74,6 +74,19 @@ def main():
     pct.columns = ["tesoro_pct", "esterilizacion_pct", "neta_pct"]
     tabla = pd.concat([f, pct], axis=1)
     tabla.to_csv(D.CARPETA / "emision_mensual.csv", encoding="utf-8-sig", float_format="%.4f")
+    if "--solo-datos" in sys.argv:
+        # corrida diaria (17-nov-2026, en actualizar_todo.py antes de replicar_rem.py): solo el CSV que usa I (emiT12), sin
+        # las proyecciones locales. Antes el CSV se rehacía solo al correr el análisis a mano y quedó sin octubre 2026
+        ult = pct["tesoro_pct"].dropna().index.max()
+        falta = ult < pd.Period(pd.Timestamp.today(), "M") - 1
+        L = [f"=== EMISIÓN AL TESORO (datos para la inflación) | {pd.Timestamp.now():%Y-%m-%d %H:%M} ===",
+             f"Emisión mensual actualizada: último mes completo {ult} (Tesoro {pct['tesoro_pct'][ult]:+.2f}% de la base).",
+             (f"ALERTAS: falta el mes {pd.Period(pd.Timestamp.today(), 'M') - 1} (BCRA todavía sin base monetaria o flujos); "
+              "I lo necesita (emiT12)." if falta else "ALERTAS: ninguna. Todo en orden.")]
+        texto = "\n".join(L)
+        print(texto)
+        (D.CARPETA / "informe_emision_datos.txt").write_text(texto, encoding="utf-8")
+        sys.exit(1 if falta else 0)
 
     L = ["=== EMISIÓN AL TESORO Y PRECIOS ===",
          "Tesoro = " + ", ".join(f"{k} {v}" for k, v in TESORO.items()) + ".",

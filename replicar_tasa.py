@@ -34,6 +34,8 @@ CAMBIO = pd.Period("2024-12", "M")
 # 12 meses y años (30-oct-2026, Marcos: "usá la inflación para calcular la TAMAR como pide el REM"): relación de Fisher.
 # TAMAR(m) = (1 + inflación esperada de m) × (1 + tasa real esperada hoy) − 1, en TEM, llevada a TNA × 365/30.
 # Inflación de m = camino mensual de replicar_rem.py (I hasta t+6 y después la clase de referencia; datos\camino_inflacion.csv).
+# Desde el 17-nov-2026 (Marcos): para 12m y dic del año siguiente, la inflación PROMEDIO (12 meses publicados / año del camino),
+# no la del mes puntual (ver plazos largos en main()).
 # Tasa real esperada hoy = TAMAR del mes (TEM) contra nuestra inflación del mes siguiente. La ex post de 12 meses (−0,05%
 # mensual) se descartó: muy inestable (oct-2025 +1,8% por las elecciones, mar-2026 −1,0%). Para comparar queda el modelo
 # anterior (Huber sobre el forward de los futuros; plazos_largos()).
@@ -295,6 +297,7 @@ def main():
     a_mes = {x["mes"]: x["A"] for x in reg}
     cam = pd.read_csv(C / "camino_inflacion.csv", encoding="utf-8-sig") if (C / "camino_inflacion.csv").exists() else pd.DataFrame()
     cam = cam[cam["relevamiento"] == str(t)].set_index("mes")["inflacion_mensual"] if len(cam) else pd.Series(dtype=float)
+    rg = pd.read_csv(C / "registro_general.csv", encoding="utf-8-sig") if (C / "registro_general.csv").exists() else pd.DataFrame()
     tem_now = r_now * 30 / 365 / 100
     r_real = (1 + tem_now) / (1 + cam.get(str(t + 1), np.nan) / 100) - 1          # tasa real esperada hoy (mensual)
     L.append(f"   Fisher: TAMAR de hoy {r_now:.2f}% TNA ({tem_now * 100:.2f}% TEM), inflación esperada {t + 1} "
@@ -304,12 +307,25 @@ def main():
         hh = min(max((m - t).n, 1), 12)
         x0 = np.array([fw.get(hh, np.nan) - r_now, row["dr"], row["real_rate"]], float)
         a_viejo = r_now + huber(q[cols].values, q["dif_rem"].values, x0) if not np.isnan(x0).any() and len(q) >= MIN else np.nan
+        # 17-nov-2026 (Marcos): la inflación de Fisher es un PROMEDIO, no el mes puntual del camino (después de t+6 el camino
+        # baja por supuesto y el mes t+12 o dic del año siguiente quedaba bajo: 1,6% vs 1,94% promedio -> TAMAR 18%).
+        # 12m = nuestra inflación publicada de los próximos 12 meses (registro_general, H "12m"; si falta, el camino t+1..t+12);
+        # dic1 = el año siguiente del camino (dic/dic, igual al año publicado). Prueba aproximada dic-24 a nov-25 (n 12) a 12m:
+        # inflación promedio × tasa real ~0: 5,1 pp; con el mes puntual o la tasa real del momento, peor; REM 3,3.
         if gr == "dic0" and str(m) in a_mes:       # el año en curso es el mismo diciembre ya pronosticado como mes
-            a = a_mes[str(m)]
+            a, pi_m, txt = a_mes[str(m)], cam.get(str(m), np.nan), "mes ya pronosticado"
         else:
-            a = ((1 + cam.get(str(m), np.nan) / 100) * (1 + r_real) - 1) * 365 / 30 * 100
+            meses = ([str(t + k) for k in range(1, 13)] if gr == "12m" else [f"{m.year}-{k:02d}" for k in range(1, 13)])
+            acum = np.prod([1 + cam.get(mm, np.nan) / 100 for mm in meses])
+            txt = f"promedio {meses[0]} a {meses[-1]}"
+            if gr == "12m":
+                g12 = (rg[(rg["relevamiento"] == str(t)) & (rg["H"] == "12m")]["G"].dropna() if len(rg) else pd.Series(dtype=float))
+                if len(g12):
+                    acum, txt = 1 + g12.iloc[-1] / 100, "promedio de nuestra inflación de los próximos 12 meses"
+            pi_m = (acum ** (1 / 12) - 1) * 100
+            a = ((1 + pi_m / 100) * (1 + r_real) - 1) * 365 / 30 * 100
         L.append(f"   hoy {gr:5} {str(m):9} REM ant. {ref.get(gr, np.nan):6.2f} | Fisher {a:6.2f} | modelo anterior {a_viejo:6.2f}"
-                 f" | inflación del mes {cam.get(str(m), np.nan):.2f}%")
+                 f" | inflación {pi_m:.2f}% mensual ({txt})")
         if not REGISTRAR_LARGOS:
             continue
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": hcod, "se_queda": r_now, "A": a,

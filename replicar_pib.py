@@ -196,7 +196,9 @@ def main():
                                                                     p90=("percentil_90", "mean")).reset_index()
 
     def rasgos(t, Q):
-        ult_m = t - 2                                                    # último EMAE publicado al fin del mes t
+        # último EMAE publicado al fin del mes t; si todavía no salió (17-nov-2026: a mitad de noviembre el de septiembre no
+        # estaba y el III y IV trimestre quedaban vacíos), el último publicado. En la prueba hacia atrás siempre es t-2
+        ult_m = min(t - 2, desest.dropna().index.max())
         d = desest[desest.index <= ult_m]
         if len(d) < 6:
             return None
@@ -296,10 +298,20 @@ def main():
         R = pd.concat([R, pd.DataFrame([{"origen": t, "Q": pd.Period(x["trimestre"], "Q"), "I_pib": x["I_pib"]} for x in reg])],
                       ignore_index=True)
     L += [""] + pib_anual(V, R, r, real, t, desest)
-    L.append("ALERTAS: ninguna. Todo en orden.")
+    # ALERTA R02 (17-nov-2026): trimestre de hoy sin I-PIB (no se rellena, pero se avisa; ver ALERTA R01 en replicar_rem.py)
+    vacios = [x["trimestre"] for x in reg if pd.isna(x["I_pib"])]
+    if vacios:
+        L += [f"ALERTA R02: I-PIB vacío en {', '.join(vacios)} (relevamiento {t}; EMAE hasta {desest.dropna().index.max()}).",
+              "   Efecto: la tarjeta del PIB trimestral y el PIB anual quedan incompletos o mal calculados.",
+              "   Qué hacer: revisar datos\\emae.parquet (actualizar_actividad.py) o pedirle a Claude que lo revise.",
+              f"ALERTAS: 1 (PIB de hoy incompleto)"]
+    else:
+        L.append("ALERTAS: ninguna. Todo en orden.")
     texto = "\n".join(L)
     print(texto)
     (C / "informe_pib.txt").write_text(texto, encoding="utf-8")
+    if vacios:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

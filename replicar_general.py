@@ -138,6 +138,31 @@ def main():
                         "G": x["G"], "abajo": x["abajo"], "I": x["I"], "N": x["N"], "regulados": x["regulados"], "estacionales": x["estacionales"]})
         if h0["regulados_detalle"]:
             L.append(f"   Regulados de {t_hoy}: {h0['regulados_detalle']} (resto de los rubros al promedio de 3 meses)")
+        # EN OBSERVACIÓN (17-nov-2026, Marcos): G m0 corregida con el termómetro del súper, "C2 mezcla" de
+        # probar_termometro_general.py: C2 = G + w·(termómetro − G), w (0 a 1) estimado con los meses ya publicados.
+        # Prueba 2025-26 (13 meses): 0,36 contra 0,47 pp, p 0,26. NO se publica; se registra para decidir con más meses.
+        try:
+            tm = pd.read_parquet(C / "sepa_indice_mensual.parquet")
+            tm = tm[tm["region"] == "Nacional"].set_index("mes")["variacion_25_pct"].dropna()
+            z = A[(A["h"] == 0) & (A["obj"] <= t_hoy - 1)].dropna(subset=["real"]).copy()
+            z["termo"] = z["obj"].astype(str).map(tm)
+            z = z.dropna(subset=["termo"])
+            termo = tm.get(str(t_hoy), np.nan)
+            if len(z) >= 8 and not np.isnan(termo):
+                d, y = (z["termo"] - z["abajo"]).values, (z["real"] - z["abajo"]).values
+                w = float(np.clip(d @ y / (d @ d), 0, 1)) if d @ d > 0 else 0.0
+                c2 = h0["abajo"] + w * (termo - h0["abajo"])
+                L.append(f"   En observación (no se publica): G m0 con el súper (C2) {c2:.2f}% = G {h0['abajo']:.2f} + "
+                         f"{w:.2f} × (súper {termo:.2f} − G); {len(z)} meses para estimar el peso")
+                p2 = C / "registro_general_c2.csv"
+                pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "objetivo": str(h0["obj"]), "G": h0["abajo"],
+                               "termometro": termo, "w": w, "C2": c2, "meses": len(z)}]).to_csv(
+                    p2, mode="a", header=not p2.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
+            else:
+                L.append(f"   En observación: C2 (G m0 con el súper) sin calcular: termómetro del mes "
+                         f"{'sin dato todavía' if np.isnan(termo) else 'ok'}, {len(z)} meses para estimar (mín. 8)")
+        except Exception as ex:
+            L.append(f"   En observación: C2 sin calcular ({type(ex).__name__}: {ex})")
         # PUBLICADA DESDE EL 30-OCT-2026 (Marcos): G es la inflación general del sitio y del sello. 12 meses = I (regresión
         # directa); años y 24 meses sobre el camino de G con la misma regla que replicar_rem.py: meses publicados + G (m0..m6;
         # si faltan meses del año, la tasa del 12m); años siguientes = (1 + año en curso)^{r_k} − 1 (clase de referencia
@@ -145,6 +170,24 @@ def main():
         # El camino va a datos\camino_inflacion.csv (lo usa replicar_tasa.py para la TAMAR a 12 meses y de diciembre).
         from replicar_rem import clase_referencia_c
         i12 = ri["pronostico_inflacion"].get("12m", np.nan) if len(ri) else np.nan
+        # EN OBSERVACIÓN (17-nov-2026, Marcos): 12 meses "mitad I / mitad mediana de los hogares" (probar_ei_12m.py:
+        # 2025-26 2,78 contra 3,35 pp de I, n 10, ventanas que se pisan). NO se publica; se registra para decidir con más meses.
+        try:
+            hs = pd.read_parquet(C / "series_historicas.parquet", columns=["id", "fecha", "valor"])
+            med = hs[hs["id"] == "utdt_ei_mediana"].assign(m=lambda z: pd.to_datetime(z["fecha"]).dt.to_period("M")).set_index("m")["valor"]
+            mes_ei = t_hoy if t_hoy in med.index else t_hoy - 1          # la UTDT del mes sale hacia el día 20
+            ei_med = float(med.get(mes_ei, np.nan))
+            mitad = np.expm1((np.log1p(i12 / 100) + np.log1p(ei_med / 100)) / 2) * 100
+            if np.isnan(mitad):
+                raise ValueError(f"I 12m {i12} o mediana UTDT de {mes_ei} vacía")
+            L.append(f"   En observación (no se publica): 12 meses mitad I / mitad mediana de los hogares {mitad:.1f}% "
+                     f"(I {i12:.1f}%, mediana UTDT de {mes_ei} {ei_med:.1f}%)")
+            p3 = C / "registro_12m_mitad.csv"
+            pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "I_12m": i12, "ei_mediana": ei_med,
+                           "mes_ei": str(mes_ei), "mitad": mitad}]).to_csv(
+                p3, mode="a", header=not p3.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
+        except Exception as ex:
+            L.append(f"   En observación: 12 meses mitad I / mediana sin calcular ({type(ex).__name__}: {ex})")
         tasa12 = (1 + i12 / 100) ** (1 / 12)
         cam = {mm: 1 + m["general"][mm] / 100 for mm in pd.period_range(f"{t_hoy.year}-01", t_hoy - 1, freq="M")}
         cam.update({x["obj"]: 1 + x["G"] / 100 for _, x in H.iterrows()})
