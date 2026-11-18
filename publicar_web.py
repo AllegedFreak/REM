@@ -1324,7 +1324,7 @@ def html_estatico(resumen):
                 real = f" Dato real: {f['real']}." if "real" in f else ""
                 L.append(f"<li><strong>{_esc(f['titulo'])}</strong>:{real} REM {f['rem']} · nosotros {f['nuestro']}. {_esc(f['texto'])}</li>")
             L.append("</ul>")
-    L += ['<p>Más: <a href="#historial">resultados de los últimos meses</a> · <a href="#sellos">verificación de que las predicciones no fueron modificadas</a> · '
+    L += ['<p>Más: <a href="#sellos">verificación de que las predicciones no fueron modificadas</a> · '
           '<a href="#datos">series para descargar</a>.</p>', "</section>"]
     return "\n".join(L)
 

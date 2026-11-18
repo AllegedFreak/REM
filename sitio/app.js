@@ -602,7 +602,6 @@
       portada(R, F);
       mesEnCurso(R);
       tarjetas(R);
-      bloques(R);
       relato(R);
       listaSellos(R);
       datos(F, CATALOGO);
