@@ -125,8 +125,27 @@ def main():
             p = diebold_mariano((z["G"] - z["real"]).values, (z["rem"] - z["real"]).values, max(h, 1)) if len(z) > 10 else np.nan
             L.append(f"   m{h:<3}{e('rem'):12.2f}{e('I'):8.2f}{e('abajo'):13.2f}{e('G'):8.2f}{len(z):5d}{p:12.2f}")
         L.append("")
-    H = A[A["origen"] == t_hoy].sort_values("h")
+    H = A[A["origen"] == t_hoy].sort_values("h").copy()
     if len(H):
+        # PUBLICADO DESDE EL 26-NOV-2026 (Marcos: "aplicamos 1"): m3-m6 (los meses que salen de I) = mitad I / mitad mediana
+        # de los hogares llevada a tasa mensual, en logaritmos, igual que los 12 meses; así el camino es coherente con el 12m.
+        # Prueba 2025-26: error m3 0,37→0,40, m4 0,27→0,34, m5 y m6 iguales (p 0,28-0,98, empate). m0-m2 ("desde abajo") no
+        # cambian. Si falta la mediana UTDT quedan I y ALERTA R03.
+        try:
+            _hs = pd.read_parquet(C / "series_historicas.parquet", columns=["id", "fecha", "valor"])
+            _med = _hs[_hs["id"] == "utdt_ei_mediana"].assign(m=lambda z: pd.to_datetime(z["fecha"]).dt.to_period("M")).set_index("m")["valor"]
+            _mes = t_hoy if t_hoy in _med.index else t_hoy - 1
+            _eim = ((1 + float(_med.get(_mes, np.nan)) / 100) ** (1 / 12) - 1) * 100
+            if np.isnan(_eim):
+                raise ValueError(f"mediana UTDT de {_mes} vacía")
+            lej = H["h"] >= 3
+            H["I_sin_mitad"] = H["G"]
+            H.loc[lej, "G"] = np.expm1((np.log1p(H.loc[lej, "G"] / 100) + np.log1p(_eim / 100)) / 2) * 100
+            L.append(f"m3-m6 PUBLICADOS = mitad I / mitad mediana de los hogares ({_eim:.2f}% mensual, UTDT de {_mes}); "
+                     "I sin mezclar: " + ", ".join(f"{x['obj']} {x['I_sin_mitad']:.2f}" for _, x in H[lej].iterrows()))
+        except Exception as ex:
+            L.append(f"   ALERTA R03 (m3-m6): mitad I / mediana sin calcular ({type(ex).__name__}: {ex}); se publica I. "
+                     "Qué hacer: revisar la mediana UTDT (utdt_ei_mediana en series_historicas).")
         h0 = H.iloc[0]
         L.append(f"PRONÓSTICO DE HOY (general; IPC hasta {t_hoy - 1}; pesos efectivos núcleo {100 * h0['s_nucleo']:.1f}%, "
                  f"regulados {100 * h0['s_regulados']:.1f}%, estacionales {100 * h0['s_estacional']:.1f}%):")
@@ -158,6 +177,24 @@ def main():
                 pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "objetivo": str(h0["obj"]), "G": h0["abajo"],
                                "termometro": termo, "w": w, "C2": c2, "meses": len(z)}]).to_csv(
                     p2, mode="a", header=not p2.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
+                # EN OBSERVACIÓN (26-nov-2026, Marcos): C2 + carne de Cañuelas con su peso INDEC (probar_rubros_mes.py):
+                # C3 = C2 + peso carnes × (pronóstico de la carne − C2). Prueba 13 meses: 0,30 contra 0,47 pp, p 0,14.
+                try:
+                    from probar_rubros_mes import peso_nacional, prono_carnes
+                    pc = prono_carnes(t_hoy)[0].get(t_hoy, np.nan)
+                    if not np.isnan(pc):
+                        pk = peso_nacional("01.1.2")
+                        c3 = c2 + pk * (pc - c2)
+                        L.append(f"   En observación (no se publica): C2 + carne de Cañuelas (C3) {c3:.2f}% = C2 {c2:.2f} + "
+                                 f"{pk:.3f} × (carne {pc:.2f} − C2)")
+                        p3 = C / "registro_general_c3.csv"
+                        pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "objetivo": str(h0["obj"]),
+                                       "G": h0["abajo"], "C2": c2, "carne": pc, "peso_carne": pk, "C3": c3}]).to_csv(
+                            p3, mode="a", header=not p3.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
+                    else:
+                        L.append("   En observación: C3 (C2 + carne de Cañuelas) sin calcular: falta la hacienda del mes")
+                except Exception as ex:
+                    L.append(f"   En observación: C3 sin calcular ({type(ex).__name__}: {ex})")
             else:
                 L.append(f"   En observación: C2 (G m0 con el súper) sin calcular: termómetro del mes "
                          f"{'sin dato todavía' if np.isnan(termo) else 'ok'}, {len(z)} meses para estimar (mín. 8)")
@@ -170,8 +207,12 @@ def main():
         # El camino va a datos\camino_inflacion.csv (lo usa replicar_tasa.py para la TAMAR a 12 meses y de diciembre).
         from replicar_rem import clase_referencia_c
         i12 = ri["pronostico_inflacion"].get("12m", np.nan) if len(ri) else np.nan
-        # EN OBSERVACIÓN (17-nov-2026, Marcos): 12 meses "mitad I / mitad mediana de los hogares" (probar_ei_12m.py:
-        # 2025-26 2,78 contra 3,35 pp de I, n 10, ventanas que se pisan). NO se publica; se registra para decidir con más meses.
+        # PUBLICADA DESDE EL 26-NOV-2026 (Marcos: "hagamos esto", opción 2): 12 meses = "mitad I / mitad mediana de los
+        # hogares" (en logaritmos). probar_ei_12m.py, 2025-26: 2,78 contra 3,35 pp de I (n 10, ventanas que se pisan); más
+        # estable: el 26-nov el promedio UTDT cayó 35,9 → 29,7 e I pasó de 26,1 a 20,7%, la mitad de 27,8 a 25,2%.
+        # Si falta la mediana UTDT se publica I y se avisa (nunca rellenar en silencio). Se sigue registrando I en
+        # registro_12m_mitad.csv para comparar.
+        i12_pub, fuente12 = i12, "I (sin la mediana de los hogares)"
         try:
             hs = pd.read_parquet(C / "series_historicas.parquet", columns=["id", "fecha", "valor"])
             med = hs[hs["id"] == "utdt_ei_mediana"].assign(m=lambda z: pd.to_datetime(z["fecha"]).dt.to_period("M")).set_index("m")["valor"]
@@ -180,15 +221,17 @@ def main():
             mitad = np.expm1((np.log1p(i12 / 100) + np.log1p(ei_med / 100)) / 2) * 100
             if np.isnan(mitad):
                 raise ValueError(f"I 12m {i12} o mediana UTDT de {mes_ei} vacía")
-            L.append(f"   En observación (no se publica): 12 meses mitad I / mitad mediana de los hogares {mitad:.1f}% "
+            i12_pub, fuente12 = mitad, "mitad I / mitad mediana de los hogares"
+            L.append(f"   12 meses PUBLICADO = mitad I / mitad mediana de los hogares {mitad:.1f}% "
                      f"(I {i12:.1f}%, mediana UTDT de {mes_ei} {ei_med:.1f}%)")
             p3 = C / "registro_12m_mitad.csv"
             pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "I_12m": i12, "ei_mediana": ei_med,
                            "mes_ei": str(mes_ei), "mitad": mitad}]).to_csv(
                 p3, mode="a", header=not p3.exists(), index=False, encoding="utf-8-sig", float_format="%.4f")
         except Exception as ex:
-            L.append(f"   En observación: 12 meses mitad I / mediana sin calcular ({type(ex).__name__}: {ex})")
-        tasa12 = (1 + i12 / 100) ** (1 / 12)
+            L.append(f"   ALERTA R03 (12 meses): mitad I / mediana sin calcular ({type(ex).__name__}: {ex}); se publica I {i12:.1f}%. "
+                     "Qué hacer: revisar la mediana UTDT (utdt_ei_mediana en series_historicas).")
+        tasa12 = (1 + i12_pub / 100) ** (1 / 12)
         cam = {mm: 1 + m["general"][mm] / 100 for mm in pd.period_range(f"{t_hoy.year}-01", t_hoy - 1, freq="M")}
         cam.update({x["obj"]: 1 + x["G"] / 100 for _, x in H.iterrows()})
         for mm in pd.period_range(f"{t_hoy.year}-01", f"{t_hoy.year}-12", freq="M"):
@@ -223,7 +266,7 @@ def main():
                     cam[mm] = np.exp(lin[mm] + corr)
         anio = (f_anio(t_hoy.year) - 1) * 100
         p24 = (np.prod([cam[t_hoy + j] for j in range(13, 25)]) - 1) * 100
-        largos = [("12m", "12m", i12), ("año0", str(t_hoy.year), anio), ("año1", str(t_hoy.year + 1), (f_anio(t_hoy.year + 1) - 1) * 100),
+        largos = [("12m", "12m", i12_pub),("año0", str(t_hoy.year), anio), ("año1", str(t_hoy.year + 1), (f_anio(t_hoy.year + 1) - 1) * 100),
                   ("año2", str(t_hoy.year + 2), (f_anio(t_hoy.year + 2) - 1) * 100), ("24m", "24m", p24)]
         L.append("   General, plazos largos: " + " | ".join(f"{a} {v:.1f}%" for a, _, v in largos) + f" (clase de referencia, {n_casos} casos)")
         for H_, obj, v_ in largos:

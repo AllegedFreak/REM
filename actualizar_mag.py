@@ -89,6 +89,7 @@ def parsear(html):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--desde", default="2017-01")
+    ap.add_argument("--aviso", action="store_true")   # lo pasa actualizar_todo.py a todos los pasos (sin esto, ERROR desde el 17-oct-2026)
     a = ap.parse_args()
     CRUDOS.mkdir(parents=True, exist_ok=True)
     hoy = date.today()
