@@ -89,7 +89,7 @@ def pib_anual(V, R, r, real_q, t_hoy, desest):
     an["origen"] = pd.to_datetime(an["mes_relevamiento"]).dt.to_period("M")
     an["anio"] = pd.to_numeric(an["periodo_original"], errors="coerce")
     an = an.dropna(subset=["anio"]).groupby(["origen", "anio"]).agg(rem=("mediana", "mean"), p10=("percentil_10", "mean"),
-                                                                    p90=("percentil_90", "mean")).reset_index()
+                                                                    p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean")).reset_index()
     # primer dato anual: la primera versión que trae el 4° trimestre del año
     real = {}
     for y in range(2015, t_hoy.year + 1):
@@ -108,7 +108,7 @@ def pib_anual(V, R, r, real_q, t_hoy, desest):
         caminos = {k: camino_anual(V, R, t, g) for k, g in variantes.items()}
         for _, x in an[an["origen"] == t].iterrows():
             y = int(x["anio"])
-            f = {"origen": t, "anio": y, "pos": y - t.year, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"],
+            f = {"origen": t, "anio": y, "pos": y - t.year, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"], "p25": x["p25"], "pmax": x["pmax"],
                  "real": real.get(y, np.nan) if y < t_hoy.year or (V["Q"] == pd.Period(f"{y}Q4", "Q")).any() else np.nan}
             for k, c in caminos.items():
                 f[f"I_{k}"] = c.get(y, np.nan)
@@ -193,7 +193,7 @@ def main():
     g = g.dropna(subset=["Q"])
     g["k"] = [(b - a.asfreq("Q")).n for a, b in zip(g["origen"], g["Q"])]
     g = g[g["k"].between(-1, 2)].groupby(["origen", "Q", "k"]).agg(rem=("mediana", "mean"), p10=("percentil_10", "mean"),
-                                                                    p90=("percentil_90", "mean")).reset_index()
+                                                                    p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean")).reset_index()
 
     def rasgos(t, Q):
         # último EMAE publicado al fin del mes t; si todavía no salió (17-nov-2026: a mitad de noviembre el de septiembre no
@@ -240,7 +240,7 @@ def main():
         for i, row in q.iterrows():
             o = row["origen"]
             tr = q[q["origen"] < o].dropna(subset=COLS + ["rem"])
-            out = {"origen": o, "Q": row["Q"], "k": k, "rem": row["rem"], "real": row["real"], "p10": row["p10"], "p90": row["p90"],
+            out = {"origen": o, "Q": row["Q"], "k": k, "rem": row["rem"], "real": row["real"], "p10": row["p10"], "p90": row["p90"], "p25": row["p25"], "pmax": row["pmax"],
                    "emae_solo": row["emae_nc"]}
             if len(tr) >= MIN:
                 out["A_pib"] = huber(tr[COLS].values.astype(float), tr["rem"].values.astype(float), row[COLS].values.astype(float))
@@ -255,7 +255,7 @@ def main():
     for per, m in (("2016-2024", R["origen"] <= pd.Period("2024-12", "M")), ("2025-26", R["origen"] > pd.Period("2024-12", "M"))):
         q = R[m]
         L.append(f"== {per}")
-        L.append(f"   {'':16}{'distancia al REM':>34} | {'error contra el primer dato':>42} | {'dentro P10-P90':>16}")
+        L.append(f"   {'':16}{'distancia al REM':>34} | {'error contra el primer dato':>42} | {'dentro P25-máx':>16}")
         L.append(f"   {'':16}{'EMAE':>8}{'A':>8}{'I':>8}{'n':>6} | {'EMAE':>8}{'A':>8}{'I':>8}{'REM':>8}{'n':>6}{'p DM I-REM':>12} | {'A':>8}{'I':>8}")
         for k in sorted(q["k"].unique()):
             z = q[q["k"] == k].dropna(subset=["A_pib", "I_pib"])
@@ -267,7 +267,7 @@ def main():
                 p = diebold_mariano((zr.I_pib - zr.real).values, (zr.rem - zr.real).values, max(k + 2, 1)) if len(zr) > 6 else np.nan
             except Exception:
                 p = np.nan
-            cob = lambda c: ((z[c] >= z.p10) & (z[c] <= z.p90)).mean() * 100
+            cob = lambda c: ((z[c] >= z.p25) & (z[c] <= z.pmax)).mean() * 100
             L.append(f"   {etq[k]:16}{d('emae_solo', 'rem', z):8.2f}{d('A_pib', 'rem', z):8.2f}{d('I_pib', 'rem', z):8.2f}{len(z):6d} | "
                      f"{d('emae_solo', 'real', zr):8.2f}{d('A_pib', 'real', zr):8.2f}{d('I_pib', 'real', zr):8.2f}{d('rem', 'real', zr):8.2f}"
                      f"{len(zr):6d}{p:12.2f} | {cob('A_pib'):7.0f}%{cob('I_pib'):7.0f}%")

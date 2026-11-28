@@ -128,7 +128,7 @@ def main():
             filas.append({"origen": t, "tipo": tipo, "objetivo": str(q), "h": (q - ult).n,
                           "etiqueta": f"h{(q - ult).n}" if tipo == "trim" else "año" + (f"+{q.year - t.year}" if q.year > t.year else ""),
                           "ult_conocido": str(ult), "rem": np.nan if x is None else x["mediana"],
-                          "p10": np.nan if x is None else x["percentil_10"], "p90": np.nan if x is None else x["percentil_90"],
+                          "p10": np.nan if x is None else x["percentil_10"], "p90": np.nan if x is None else x["percentil_90"], "p25": np.nan if x is None else x["percentil_25"], "pmax": np.nan if x is None else x["maximo"],
                           "real": u_all.get(q, np.nan), "I_est": est[q], "I_okun": ok[q], "I": est[q], "I_prom": (est[q] + ok[q]) / 2,
                           "okun_c": c, "okun_b": b, "emae_ia": g_now, "du_ult": du_ult})
     X = pd.DataFrame(filas)
@@ -163,7 +163,7 @@ def main():
     orden = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "año": 5, "año+1": 6, "año+2": 7}
     for per, m_ in (("2020-2024", X["origen"] <= pd.Period("2024-12", "M")), ("2025-26", X["origen"] > pd.Period("2024-12", "M"))):
         L.append(f"== {per}  (A se evalúa desde que tiene {MIN} relevamientos; cada fila usa la misma muestra para todos)")
-        L.append(f"   {'':7}{'distancia al REM':>30} | {'error contra el real':>44} | {'P10-P90':>12}")
+        L.append(f"   {'':7}{'distancia al REM':>30} | {'error contra el real':>44} | {'P25-máx':>12}")
         L.append(f"   {'':7}{'I prom':>7}{'I okun':>8}{'I':>7}{'A':>7}{'n':>4} | {'I prom':>7}{'I okun':>8}{'I':>7}{'A':>7}{'REM':>7}{'n':>4}{'p I-REM':>8} | {'I':>5}{'A':>6}")
         Z = X[m_ & X["rem"].notna()]
         for et in sorted(Z["etiqueta"].unique(), key=lambda k: orden.get(k, 9)):
@@ -174,7 +174,7 @@ def main():
             d = lambda c, ref, zz: (zz[c] - zz[ref]).abs().mean() if len(zz) else np.nan
             h = int(z["h"].max())
             p = diebold_mariano((zr["I"] - zr["real"]).values, (zr["rem"] - zr["real"]).values, 3 * (h + 1)) if len(zr) > 10 else np.nan
-            cob = lambda c, zz: ((zz[c] >= zz["p10"]) & (zz[c] <= zz["p90"])).mean() * 100 if len(zz) else np.nan
+            cob = lambda c, zz: ((zz[c] >= zz["p25"]) & (zz[c] <= zz["pmax"])).mean() * 100 if len(zz) else np.nan
             L.append(f"   {et:7}{d('I_prom', 'rem', z):7.2f}{d('I_okun', 'rem', z):8.2f}{d('I', 'rem', z):7.2f}{d('A', 'rem', za):7.2f}{len(z):4d} | "
                      f"{d('I_prom', 'real', zr):7.2f}{d('I_okun', 'real', zr):8.2f}{d('I', 'real', zr):7.2f}{d('A', 'real', zra):7.2f}"
                      f"{d('rem', 'real', zr):7.2f}{len(zr):4d}{p:8.2f} | {cob('I', z):4.0f}%{cob('A', za):5.0f}%")

@@ -163,9 +163,10 @@
     for (const t of R.pronosticos) {
       const d = DEC[t.clave] ?? 2;
       const prim = t.filas.find((f) => f.nuestro !== null) || t.filas[0];
-      const tb = el("table", { class: "tabla" },
+      // tabla-pron: período en un renglón y las 3 columnas repartidas; "Último REM" en dos filas (28-nov-2026, Marcos)
+      const tb = el("table", { class: "tabla tabla-pron" },
         el("thead", {}, el("tr", {}, el("th", { text: "Período" }), el("th", { class: "num", title: "Datos Con Método" }, el("span", { class: "marca-nuestro", text: "DCM*" })),
-          el("th", { class: "num", title: "Mediana del último REM publicado por el BCRA" }, el("span", { class: "marca-rem", text: `Último REM (${mesTxt(R.rem_ultimo)})` })))));
+          el("th", { class: "num", title: "Mediana del último REM publicado por el BCRA" }, el("span", { class: "marca-rem", text: "Último REM" }), el("br"), `(${mesTxt(R.rem_ultimo)})`))));
       const tbody = el("tbody");
       for (const f of t.filas) {
         tbody.append(el("tr", {}, el("td", { text: periodoTxt(f.periodo) }), el("td", { class: "num", text: fv(t.clave, f.nuestro, d) }),
@@ -525,7 +526,8 @@
   }
 
   // ---------- el relato: REM nuevo vs nosotros, y datos reales nuevos vs nosotros y el REM
-  // barra con el rango de las consultoras (mín-máx), su 80% central (P10-P90), la mediana, nuestro valor y (si hay) el dato real
+  // barra con el rango de las consultoras (mín-máx), la franja de referencia (P25 al máximo, desde el 28-nov-2026; antes P10-P90),
+  // la mediana, nuestro valor y (si hay) el dato real
   function barraRango(r, nuestro, real) {
     const vals = [r.min, r.max, nuestro, real].filter((v) => v !== null && v !== undefined && !Number.isNaN(v));
     if (r.min === null || r.max === null || vals.length < 3) return null;
@@ -535,7 +537,7 @@
     const x = (v) => `${(100 * (v - lo)) / (hi - lo)}%`;
     const b = el("div", { class: "rango", role: "img", "aria-label": "Rango de las consultoras con la mediana del REM y el pronóstico de Datos Con Método" });
     b.append(el("span", { class: "r-linea", style: `left:${x(r.min)};width:calc(${x(r.max)} - ${x(r.min)})` }));
-    if (r.p10 !== null && r.p90 !== null) b.append(el("span", { class: "r-banda", style: `left:${x(r.p10)};width:calc(${x(r.p90)} - ${x(r.p10)})` }));
+    if (r.p25 != null && r.max !== null) b.append(el("span", { class: "r-banda", style: `left:${x(r.p25)};width:calc(${x(r.max)} - ${x(r.p25)})` }));
     if (r.p50 !== null) b.append(el("span", { class: "r-rem", style: `left:${x(r.p50)}`, title: "Mediana del REM" }));
     if (real !== null && real !== undefined) b.append(el("span", { class: "r-real", style: `left:${x(real)}`, title: "Dato real" }));
     b.append(el("span", { class: "r-dcm", style: `left:${x(nuestro)}`, title: "Pronóstico de Datos Con Método" }));

@@ -208,7 +208,7 @@ def main():
     g["origen"] = pd.to_datetime(g["mes_relevamiento"]).dt.to_period("M")
     g["anio"] = pd.to_numeric(g["periodo_original"], errors="coerce")
     g = g.dropna(subset=["anio"]).groupby(["origen", "anio"]).agg(rem=("mediana", "mean"), p10=("percentil_10", "mean"),
-                                                                  p90=("percentil_90", "mean")).reset_index()
+                                                                  p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean")).reset_index()
     mt = pd.read_csv(C / "metas_fiscales.csv", parse_dates=["vigente_desde"])
     real = M["rp"].groupby(M.index.year).agg(["sum", "count"])
     real = real.loc[real["count"] == 12, "sum"]
@@ -233,7 +233,7 @@ def main():
         for _, x in g[g["origen"] == t].iterrows():
             a = int(x["anio"])
             esc = escala(a) / 100                               # 1% del PIB, en millones
-            f = {"origen": t, "anio": a, "pos": a - t.year, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"],
+            f = {"origen": t, "anio": a, "pos": a - t.year, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"], "p25": x["p25"], "pmax": x["pmax"],
                  "real": real.get(a, np.nan) / 1000, "esc": esc / 1000, "conocido": conocido / 1000 if a == t.year else 0.0,
                  "g_ing": gi * 100, "g_gas": gg * 100, "meta_pib": meta_vigente(mt, t, a),
                  "k": (t.month - 1) if a == t.year else 0}
@@ -241,7 +241,7 @@ def main():
                 f[k] = c.get(a, np.nan) / 1000                  # miles de millones
             filas.append(f)
     X = pd.DataFrame(filas)
-    for c in ("rem", "p10", "p90", "real", "I_sin_meta", "I_g6", "conocido"):
+    for c in ("rem", "p10", "p90", "p25", "pmax", "real", "I_sin_meta", "I_g6", "conocido"):
         X[c + "_pib"] = X[c] / X["esc"]
     w = X["k"] / 12
     X["I_pib"] = np.where(X["meta_pib"].notna(), w * X["I_sin_meta_pib"] + (1 - w) * X["meta_pib"], X["I_sin_meta_pib"])
@@ -264,7 +264,7 @@ def main():
     for per, m in (("2016-2024", X["origen"] <= pd.Period("2024-12", "M")), ("2025-26", X["origen"] > pd.Period("2024-12", "M"))):
         q = X[m].dropna(subset=["A_pib"])
         L.append(f"== {per}")
-        L.append(f"   {'':14}{'distancia al REM':>26} | {'error contra el dato real':>40} | {'dentro P10-P90':>16}")
+        L.append(f"   {'':14}{'distancia al REM':>26} | {'error contra el dato real':>40} | {'dentro P25-máx':>16}")
         L.append(f"   {'':14}{'I':>8}{'sin meta':>9}{'A':>8}{'n':>5} | {'I':>8}{'sin meta':>9}{'A':>8}{'REM':>8}{'n':>5}{'p I-REM':>9} | {'I':>7}{'A':>7}")
         for pos in (0, 1):
             z = q[q["pos"] == pos]
@@ -276,7 +276,7 @@ def main():
                 p = diebold_mariano((zr.I_pib - zr.real_pib).values, (zr.rem_pib - zr.real_pib).values, 12) if len(zr) > 6 else np.nan
             except Exception:
                 p = np.nan
-            cob = lambda c: ((z[c] >= z.p10) & (z[c] <= z.p90)).mean() * 100
+            cob = lambda c: ((z[c] >= z.p25) & (z[c] <= z.pmax)).mean() * 100
             L.append(f"   {etq[pos]:14}{d('I', 'rem', z):8.2f}{d('I_sin_meta', 'rem', z):9.2f}{d('A', 'rem', z):8.2f}{len(z):5d} | "
                      f"{d('I', 'real', zr):8.2f}{d('I_sin_meta', 'real', zr):9.2f}{d('A', 'real', zr):8.2f}{d('rem', 'real', zr):8.2f}"
                      f"{len(zr):5d}{p:9.2f} | {cob('I'):6.0f}%{cob('A'):6.0f}%")

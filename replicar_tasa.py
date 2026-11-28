@@ -3,7 +3,7 @@
 # El REM pidió la BADLAR de bancos privados hasta nov-2024 y la TAMAR de bancos privados desde dic-2024: se usan juntas
 # (cada relevamiento contra su propia tasa) para tener más historia (2020-01 en adelante).
 # Información en el relevamiento de fin del mes t:
-#   r_now  = promedio de la tasa del mes t hasta el día 25 (mínimo 8 días con dato);
+#   r_now  = tasa del último día hábil con dato del mes t (desde el 28-nov-2026; antes, promedio hasta el día 25);
 #   fwd_h  = tasa "forward" del mes t+h implícita en los futuros de dólar del CEM (cociente de contratos consecutivos,
 #            anualizado), del último día con dato hasta el 25; si no hay contrato, se repite el último forward.
 # Modelos (estimación robusta Huber, ventana acumulada, mínimo 24 relevamientos, uno por horizonte):
@@ -66,7 +66,7 @@ def cargar():
     g["h"] = [(m - o).n for m, o in zip(g["mes"], g["origen"])]
     g["serie"] = np.where(g["variable_std"] == "tasa_tamar", "tamar_tna", "badlar_tna")
     g = g[g["h"].between(0, 6)].groupby(["origen", "mes", "h", "serie"]).agg(
-        rem=("mediana", "mean"), p10=("percentil_10", "mean"), p90=("percentil_90", "mean")).reset_index()
+        rem=("mediana", "mean"), p10=("percentil_10", "mean"), p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean")).reset_index()
     f = pd.read_parquet(C / "dolar_futuro_cem.parquet")
     f = f[f["optionType"].isna() & f["symbol"].str.fullmatch(r"DLR\d{6}")].copy()
     f["fecha"] = pd.to_datetime(f["fecha"])
@@ -76,6 +76,15 @@ def cargar():
     lic = pd.read_parquet(C / "licitaciones_tesoro.parquet")
     lic = lic[lic["tna_corte"].notna()].copy()
     return tasas, g, f, nuc, lic
+
+
+def ult_dia(s, m):
+    """Tasa del ÚLTIMO día hábil con dato del mes m (28-nov-2026, Marcos: "usemos último día hábil del mes").
+    Las consultoras responden el REM en los últimos 3 días hábiles y parten de la tasa vigente a fin de mes; con el
+    promedio hasta el 25 llegábamos tarde (2025-26, "se queda" a 1 mes: 3,77 pp con el promedio, 2,85 con el último día,
+    REM 2,96). En el pronóstico de hoy es el último dato disponible al correr."""
+    x = s[(s.index.to_period("M") == m)].dropna()
+    return float(x.iloc[-1]) if len(x) else np.nan
 
 
 def prom_mes(s, m, hasta_dia=None, minimo=10):
@@ -145,11 +154,11 @@ def plazos_largos(tasas, f, nuc):
     r["grupo"] = ["12m" if tp == "proximos_meses" else ("dic0" if m.year == o.year else ("dic1" if m.year == o.year + 1 else None))
                   for o, tp, m in zip(r["origen"], r["tipo_periodo"], r["mes"])]
     r = r.dropna(subset=["grupo"]).groupby(["origen", "serie", "grupo", "mes"]).agg(
-        rem=("mediana", "mean"), p10=("percentil_10", "mean"), p90=("percentil_90", "mean")).reset_index()
+        rem=("mediana", "mean"), p10=("percentil_10", "mean"), p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean")).reset_index()
     filas = []
     for _, x in r.iterrows():
         o, s = x["origen"], tasas[x["serie"]]
-        r_now = prom_mes(s, o, 25, 8)
+        r_now = ult_dia(s, o)
         nuc3 = nuc[(nuc.index <= o - 1) & (nuc.index >= o - 3)]
         h = (x["mes"] - o).n
         filas.append({**x.to_dict(), "h": h, "r_now": r_now, "dr": r_now - prom_mes(s, o - 1),
@@ -173,7 +182,7 @@ def main():
     filas = []
     for (o, serie), q in g.groupby(["origen", "serie"]):
         s = tasas[serie]
-        r_now = prom_mes(s, o, 25, 8)
+        r_now = ult_dia(s, o)
         r_ant = prom_mes(s, o - 1)
         fw = forwards(f, o)
         fw_ant = forwards(f, o - 1)
@@ -189,7 +198,7 @@ def main():
             misma = len(prev) and prev["serie"].eq(serie).all()
             rem_ant = (prev["rem"].get(m, prev["rem"].iloc[-1] if len(prev) else np.nan)) if misma else np.nan
             rem_ant_t = prev["rem"].get(o, np.nan) if misma else np.nan
-            filas.append({"origen": o, "mes": m, "h": h, "serie": serie, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"],
+            filas.append({"origen": o, "mes": m, "h": h, "serie": serie, "rem": x["rem"], "p10": x["p10"], "p90": x["p90"], "p25": x["p25"], "pmax": x["pmax"],
                           "real": prom_mes(s, m), "r_now": r_now, "dr": r_now - r_ant, "real_rate": real_rate,
                           "fwd_gap": fw.get(h, np.nan) - r_now, "impl_gap": im.get(h, np.nan) - r_now,
                           "lecap_gap": lc - r_now if edad is not np.nan and edad <= 1 else np.nan, "lecap_pend": ll - lc, "rem_ant": rem_ant,
@@ -231,7 +240,7 @@ def main():
     for per, m in (("2020-2024 (BADLAR)", X["origen"] < CAMBIO), ("2025-26 (TAMAR)", X["origen"] >= CAMBIO)):
         q = X[m].dropna(subset=["A"])
         L.append(f"== {per}")
-        L.append(f"   {'':4}{'distancia al REM':>30} | {'error contra la tasa real':>40} | {'dentro P10-P90':>22}")
+        L.append(f"   {'':4}{'distancia al REM':>30} | {'error contra la tasa real':>40} | {'dentro P25-máx':>22}")
         L.append(f"   {'h':4}{'queda':>8}{'A':>8}{'B':>8}{'n':>6} | {'queda':>8}{'A':>8}{'B':>8}{'REM':>8}{'n':>5}{'p A-REM':>9} | "
                  f"{'queda':>7}{'A':>7}{'B':>7}")
         for h in H:
@@ -244,7 +253,7 @@ def main():
                 p = diebold_mariano((zr.A - zr.real).values, (zr.rem - zr.real).values, h) if len(zr) > 6 else np.nan
             except Exception:
                 p = np.nan
-            cob = lambda c: ((z[c] >= z.p10) & (z[c] <= z.p90)).mean() * 100
+            cob = lambda c: ((z[c] >= z.p25) & (z[c] <= z.pmax)).mean() * 100
             L.append(f"   {h:<4}{d('se_queda', 'rem', z):8.2f}{d('A', 'rem', z):8.2f}{d('B', 'rem', z):8.2f}{len(z):6d} | "
                      f"{d('se_queda', 'real', zr):8.2f}{d('A', 'real', zr):8.2f}{d('B', 'real', zr):8.2f}{d('rem', 'real', zr):8.2f}"
                      f"{len(zr):5d}{p:9.2f} | {cob('se_queda'):6.0f}%{cob('A'):6.0f}%{cob('B'):6.0f}%")
@@ -260,11 +269,11 @@ def main():
     # pronóstico de hoy
     t = pd.Period(pd.Timestamp.today(), "M")
     s = tasas["tamar_tna"]
-    r_now = prom_mes(s, t, 25, 8) if pd.Timestamp.today().day >= 25 else np.nan
-    hasta = "hasta el 25"
-    if pd.isna(r_now):
-        r_now = s[s.index.to_period("M") == t].mean()
-        hasta = f"PROVISORIO: {int((s.index.to_period('M') == t).sum())} días"
+    r_now = ult_dia(s, t)
+    _u = s[s.index.to_period("M") == t].dropna()
+    hasta = f"último día con dato {_u.index[-1]:%d-%m}" if len(_u) else "sin dato"
+    if pd.Timestamp.today().day < 25:      # antes del 25 el pronóstico es provisorio (la tasa de fin de mes todavía no se ve)
+        hasta = "PROVISORIO, " + hasta
     fw = forwards(f, t)
     nuc3 = nuc[(nuc.index <= t - 1) & (nuc.index >= t - 3)]
     row = {"r_now": r_now, "dr": r_now - prom_mes(s, t - 1), "real_rate": r_now - nuc3.mean() * 12}
@@ -280,11 +289,11 @@ def main():
         ra = prev["rem"].get(m, np.nan)
         L.append(f"   {str(m):9}{ra:9.2f}{r_now:8.2f}{a:8.2f}{fw.get(h, np.nan):9.2f}")
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": h,
-                    "se_queda": r_now, "A": a, "forward": fw.get(h, np.nan), "rem_anterior": ra, "provisorio": hasta != "hasta el 25"})
+                    "se_queda": r_now, "A": a, "forward": fw.get(h, np.nan), "rem_anterior": ra, "provisorio": hasta.startswith("PROVISORIO")})
     # plazos largos: próx. 12 meses (h=12) y diciembre del año en curso (h=100) y del siguiente (h=101), como en el dólar
     Z, cols = plazos_largos(tasas, f, nuc)
     L += ["", "PLAZOS LARGOS (próx. 12 meses = mes t+12; año = promedio de diciembre). Errores en pp de TNA, tiempo real:",
-          f"   {'grupo':6}{'período':>12}{'dist. REM A':>12}{'error A':>9}{'error REM':>10}{'n real':>7}{'P10-P90 A':>11}"]
+          f"   {'grupo':6}{'período':>12}{'dist. REM A':>12}{'error A':>9}{'error REM':>10}{'n real':>7}{'P25-máx A':>11}"]
     for per, mk in (("2020-24", Z["origen"] < CAMBIO), ("2025-26", Z["origen"] >= CAMBIO)):
         for gr in ("12m", "dic0", "dic1"):
             z = Z[mk & (Z["grupo"] == gr)].dropna(subset=["A", "rem"])
@@ -292,7 +301,7 @@ def main():
             if not len(z):
                 continue
             L.append(f"   {gr:6}{per:>12}{(z.A - z.rem).abs().mean():12.2f}{(zr.A - zr.real).abs().mean():9.2f}"
-                     f"{(zr.rem - zr.real).abs().mean():10.2f}{len(zr):7d}{((z.A >= z.p10) & (z.A <= z.p90)).mean() * 100:10.0f}%")
+                     f"{(zr.rem - zr.real).abs().mean():10.2f}{len(zr):7d}{((z.A >= z.p25) & (z.A <= z.pmax)).mean() * 100:10.0f}%")
     ref = Z[Z["origen"] == Z["origen"].max()].set_index("grupo")["rem"]
     a_mes = {x["mes"]: x["A"] for x in reg}
     cam = pd.read_csv(C / "camino_inflacion.csv", encoding="utf-8-sig") if (C / "camino_inflacion.csv").exists() else pd.DataFrame()
@@ -330,7 +339,7 @@ def main():
             continue
         reg.append({"fecha_corrida": CORRIDA, "relevamiento": str(t), "mes": str(m), "h": hcod, "se_queda": r_now, "A": a,
                     "forward": fw.get(min(max((m - t).n, 1), 12), np.nan), "rem_anterior": ref.get(gr, np.nan),
-                    "provisorio": hasta != "hasta el 25"})
+                    "provisorio": hasta.startswith("PROVISORIO")})
     p = C / "registro_tasa.csv"
     pd.DataFrame(reg).to_csv(p, mode="a", header=not p.exists(), index=False, encoding="utf-8-sig", float_format="%.3f")
     L.append("ALERTAS: ninguna. Todo en orden.")

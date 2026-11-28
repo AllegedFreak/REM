@@ -886,7 +886,7 @@ def main():
     rem_nuc.index = pd.MultiIndex.from_arrays([rem_nuc.index.get_level_values(0), pd.to_datetime(rem_nuc.index.get_level_values(1)).to_period("M")])
     # rango de las consultoras (percentiles) para evaluar si la réplica "es una consultora más"
     pct = g[(g["tipo_periodo"] == "fecha") & (g["unidad"] == "var. % mensual")].groupby(["origen", "periodo_fin"])[
-        ["percentil_10", "percentil_25", "percentil_75", "percentil_90"]].mean()
+        ["percentil_10", "percentil_25", "percentil_75", "percentil_90", "maximo"]].mean()
     pct.index = pd.MultiIndex.from_arrays([pct.index.get_level_values(0), pd.to_datetime(pct.index.get_level_values(1)).to_period("M")])
 
     R = lambda t, m: rem_m.get((t, m), np.nan)
@@ -955,7 +955,7 @@ def main():
             p = pct.loc[(t, t + h)] if (t, t + h) in pct.index else pd.Series(dtype=float)
             filas.append({"origen": t, "H": f"m{h}", "objetivo": t + h, "rem": R(t, t + h), "rem_ant": R(t - 1, t + h),
                           "real": real.get(t + h, np.nan), **rasgos(t, h),
-                          **{k: p.get(k, np.nan) for k in ("percentil_10", "percentil_25", "percentil_75", "percentil_90")}})
+                          **{k: p.get(k, np.nan) for k in ("percentil_10", "percentil_25", "percentil_75", "percentil_90", "maximo")}})
         filas.append({"origen": t, "H": "12m", "rem": rem12.get(t, np.nan), "rem_ant": rem12.get(t - 1, np.nan),
                       "real": np.nan, **rasgos(t, 0)})
     T = pd.DataFrame(filas).dropna(subset=["rem"])
@@ -972,7 +972,7 @@ def main():
             t = fila["origen"]
             hist = th[th["origen"] < t]
             res = {"origen": t, "H": H, "rem": fila["rem"], "rem_ant": fila["rem_ant"], "real": fila["real"],
-                   **{k: fila.get(k, np.nan) for k in ("percentil_10", "percentil_25", "percentil_75", "percentil_90")}}
+                   **{k: fila.get(k, np.nan) for k in ("percentil_10", "percentil_25", "percentil_75", "percentil_90", "maximo")}}
             for nom, (tipo, cm, c12) in VARIANTES.items():
                 cols = c12 if H == "12m" else cm
                 y = y_de(tipo, H, cols)
@@ -1018,17 +1018,17 @@ def main():
         L.append(f"   {nom:14} " + " ".join(f"{dist(comun[comun.H == h], col):7.2f}" if (comun.H == h).any() else f"{'-':>7}" for h in orden_H))
     L.append("   (m0 = mes del relevamiento, m1 = el siguiente, ...; 12m = próximos 12 meses en %)")
     L.append("")
-    L.append("1b) ¿Es 'una consultora más'? % de meses dentro del 80% central de las consultoras (P10-P90) | dentro del 50% central (P25-P75)")
-    L.append("    Una consultora típica: ~80% | ~50%.")
+    L.append("1b) ¿Es 'una consultora más'? % de meses dentro del rango P25-máximo de las consultoras (vara desde el 28-nov-2026) | dentro del 50% central (P25-P75)")
+    L.append("    Una consultora típica: ~75% | ~50%.")
     L.append(f"   {'':16} " + " ".join(f"{h:>13}" for h in orden_H[:-1]))
     for nom, col in columnas:
         celdas = []
         for h in orden_H[:-1]:
-            q = comun[(comun.H == h)].dropna(subset=["percentil_10", "percentil_90"])
+            q = comun[(comun.H == h)].dropna(subset=["percentil_25", "maximo"])
             if q.empty:
                 celdas.append(f"{'-':>13}")
                 continue
-            en80 = ((q[col] >= q["percentil_10"]) & (q[col] <= q["percentil_90"])).mean() * 100
+            en80 = ((q[col] >= q["percentil_25"]) & (q[col] <= q["maximo"])).mean() * 100
             en50 = ((q[col] >= q["percentil_25"]) & (q[col] <= q["percentil_75"])).mean() * 100
             celdas.append(f"{en80:5.0f}% |{en50:4.0f}%".rjust(13))
         L.append(f"   {nom:16} " + " ".join(celdas))
@@ -1134,7 +1134,7 @@ def main():
         q = O[mascara_o]
         L.append(f"   {titulo}")
         L.append(f"   {'':18} " + " ".join(f"{h:>6}" for h in orden_H[:-1]) + f" | {'12m dir':>8} {'12m cad6':>8} {'12m cadEI':>9} |"
-                 f" {'en P10-P90: m1':>15} {'m3':>5} {'m5':>5}")
+                 f" {'en P25-máx: m1':>15} {'m3':>5} {'m5':>5}")
         filas_l = []
         for m_ in met + ["B"]:
             celdas = []
@@ -1150,8 +1150,8 @@ def main():
                 d12 = [f"{(cb['B'] - cb['rem']).abs().mean():8.2f}", f"{'':>8}", f"{'':>9}"]
             en = []
             for h in ("m1", "m3", "m5"):
-                qq = q[q.H == h].dropna(subset=[c_ for c_ in met if c_ in q.columns] + ["percentil_10", "percentil_90"])
-                en.append(f"{((qq[m_] >= qq['percentil_10']) & (qq[m_] <= qq['percentil_90'])).mean() * 100:4.0f}%" if len(qq) else "  - ")
+                qq = q[q.H == h].dropna(subset=[c_ for c_ in met if c_ in q.columns] + ["percentil_25", "maximo"])
+                en.append(f"{((qq[m_] >= qq['percentil_25']) & (qq[m_] <= qq['maximo'])).mean() * 100:4.0f}%" if len(qq) else "  - ")
             filas_l.append(f"   {m_:18} " + " ".join(celdas) + " | " + " ".join(d12) + f" | {en[0]:>15} {en[1]:>5} {en[2]:>5}")
         L.extend(filas_l)
         L.append(f"   (relevamientos: {q['origen'].min()} a {q['origen'].max()}; B como referencia)")

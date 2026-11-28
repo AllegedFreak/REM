@@ -4,7 +4,7 @@
 #         s_núcleo × N (replicar_nucleo.py) + s_regulados × regulados + s_estacionales × estacionales
 #         s_* = pesos efectivos al último mes publicado (peso de base deducido de las series del INDEC × índice de la categoría
 #               / índice general: núcleo 67,76%, regulados 20,87%, estacionales 11,33% en dic-2016)
-#         regulados = aumentos NACIONALES confirmados del calendario del mes (prepagas, gas, luz; m0-m2)
+#         regulados = aumentos confirmados del calendario del mes, nacionales y del AMBA desde el 28-nov-2026 (m0-m2)
 #               + en m0, combustibles medidos (promedio del mes hasta el 25 contra el promedio del mes anterior; índice de las
 #                 mismas estaciones)
 #               + en m0-m1, prepagas sin anuncio = IPC de dos meses antes (29-oct-2026: la regla le gana al promedio de 3 meses,
@@ -38,7 +38,13 @@ W0 = {"nucleo": 0.6776, "regulados": 0.2087, "estacional": 0.1133}
 W_REG = {"combustibles": 4.237, "transporte": 2.951, "telefonia": 2.733, "prepagas": 2.205, "tabaco": 1.914,
          "educacion": 1.803, "gas": 1.653, "luz": 1.225, "agua": 0.772}   # ponderaciones INDEC (% del IPC nacional)
 W_REG = {k: v / sum(W_REG.values()) for k, v in W_REG.items()}
-CAL_NACIONAL = {"prepagas": "prepagas", "gas": "gas", "luz": "luz"}       # rubros del calendario que se usan (alcance nacional)
+# Rubros del calendario que se usan. DESDE EL 28-NOV-2026 (Marcos: "sumemos los regulados del amba") entran también los
+# aumentos del AMBA (CABA, PBA, AMBA; confirmados y parciales) como aproximación del rubro nacional: transporte (colectivo,
+# subte, tren), luz, agua, telefonía y educación. Prueba en el mes en curso, ene-oct 2026 (10 meses), error en regulados contra
+# el INDEC: 0,79 → 0,63 pp, sesgo +0,24 → −0,04, gana 7 de 10, p 0,12 (scratchpad reg_amba.py). Antes: solo nacionales
+# (prepagas, gas, luz). Se aplica en m0-m2, igual que el calendario nacional.
+CAL_GRUPOS = {"prepagas": "prepagas", "gas": "gas", "luz": "luz", "agua": "agua", "colectivo": "transporte", "subte": "transporte",
+              "tren": "transporte", "telecomunicaciones": "telefonia", "colegios": "educacion"}
 CORTE = pd.Period("2024-12", "M")
 
 
@@ -62,9 +68,9 @@ def main():
     t_hoy = pd.Period(pd.Timestamp.today(), "M")
     comb = combustibles_mes(pd.period_range("2016-01", t_hoy, freq="M"))
     cal = pd.read_csv(C / "regulados_anunciados.csv", encoding="utf-8-sig")
-    cal["grupo"] = cal["rubro"].str.lower().map(CAL_NACIONAL)
+    cal["grupo"] = cal["rubro"].str.lower().map(CAL_GRUPOS)
     cal = cal.dropna(subset=["grupo", "pct"])
-    cal = cal[cal["calidad"].isin(["confirmado", "parcial"]) & (cal["jurisdiccion"].str.lower() == "nacional")]
+    cal = cal[cal["calidad"].isin(["confirmado", "parcial"]) & (cal["jurisdiccion"].str.lower() != "pba interior")]
     N = pd.read_csv(C / "replica_nucleo.csv", encoding="utf-8-sig")
     for k in ("origen", "obj"):
         N[k] = pd.PeriodIndex(N[k], freq="M")
@@ -157,9 +163,11 @@ def main():
                         "G": x["G"], "abajo": x["abajo"], "I": x["I"], "N": x["N"], "regulados": x["regulados"], "estacionales": x["estacionales"]})
         if h0["regulados_detalle"]:
             L.append(f"   Regulados de {t_hoy}: {h0['regulados_detalle']} (resto de los rubros al promedio de 3 meses)")
-        # EN OBSERVACIÓN (17-nov-2026, Marcos): G m0 corregida con el termómetro del súper, "C2 mezcla" de
-        # probar_termometro_general.py: C2 = G + w·(termómetro − G), w (0 a 1) estimado con los meses ya publicados.
-        # Prueba 2025-26 (13 meses): 0,36 contra 0,47 pp, p 0,26. NO se publica; se registra para decidir con más meses.
+        # PUBLICADO DESDE EL 28-NOV-2026 (Marcos: "usemos el super C2 para el primer mes"; antes en observación desde el
+        # 17-nov): G m0 corregida con el termómetro del súper, "C2 mezcla" de probar_termometro_general.py:
+        # C2 = G + w·(termómetro − G), w (0 a 1) estimado con los meses ya publicados. Prueba 2025-26 (13 meses): 0,36 contra
+        # 0,47 pp, p 0,26. Si no se puede calcular se publica G desde abajo con ALERTA R03 (nunca rellenar en silencio).
+        c2_pub = False
         try:
             tm = pd.read_parquet(C / "sepa_indice_mensual.parquet")
             tm = tm[tm["region"] == "Nacional"].set_index("mes")["variacion_25_pct"].dropna()
@@ -171,7 +179,10 @@ def main():
                 d, y = (z["termo"] - z["abajo"]).values, (z["real"] - z["abajo"]).values
                 w = float(np.clip(d @ y / (d @ d), 0, 1)) if d @ d > 0 else 0.0
                 c2 = h0["abajo"] + w * (termo - h0["abajo"])
-                L.append(f"   En observación (no se publica): G m0 con el súper (C2) {c2:.2f}% = G {h0['abajo']:.2f} + "
+                H.loc[H["h"] == 0, "G"] = c2
+                reg[0]["G"] = c2
+                c2_pub = True
+                L.append(f"   m0 PUBLICADO = G con el súper (C2) {c2:.2f}% = G desde abajo {h0['abajo']:.2f} + "
                          f"{w:.2f} × (súper {termo:.2f} − G); {len(z)} meses para estimar el peso")
                 p2 = C / "registro_general_c2.csv"
                 pd.DataFrame([{"fecha_corrida": CORRIDA, "relevamiento": str(t_hoy), "objetivo": str(h0["obj"]), "G": h0["abajo"],
@@ -196,10 +207,13 @@ def main():
                 except Exception as ex:
                     L.append(f"   En observación: C3 sin calcular ({type(ex).__name__}: {ex})")
             else:
-                L.append(f"   En observación: C2 (G m0 con el súper) sin calcular: termómetro del mes "
+                L.append(f"   C2 (G m0 con el súper) sin calcular: termómetro del mes "
                          f"{'sin dato todavía' if np.isnan(termo) else 'ok'}, {len(z)} meses para estimar (mín. 8)")
         except Exception as ex:
-            L.append(f"   En observación: C2 sin calcular ({type(ex).__name__}: {ex})")
+            L.append(f"   C2 sin calcular ({type(ex).__name__}: {ex})")
+        if not c2_pub:
+            L.append(f"   ALERTA R03 (m0): no se pudo aplicar el súper (C2); se publica G desde abajo {h0['abajo']:.2f}%. "
+                     "Qué hacer: revisar sepa_indice_mensual.parquet (termómetro del súper del mes).")
         # PUBLICADA DESDE EL 30-OCT-2026 (Marcos): G es la inflación general del sitio y del sello. 12 meses = I (regresión
         # directa); años y 24 meses sobre el camino de G con la misma regla que replicar_rem.py: meses publicados + G (m0..m6;
         # si faltan meses del año, la tasa del 12m); años siguientes = (1 + año en curso)^{r_k} − 1 (clase de referencia

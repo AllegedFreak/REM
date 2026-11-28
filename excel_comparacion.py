@@ -3,7 +3,7 @@
 # estadísticamente significativas.
 #   Nuestro dato: oct-2026 = Pronóstico sellado n.º 1B (CSV del sello); nov-2026 en adelante = el último registrado
 #                 (publicar_web.pronosticos(); si ya está sellado, el CSV del sello).
-#   REM: mediana, desvío y P10-P90 del REM del MISMO relevamiento (vacío hasta que el BCRA lo publique).
+#   REM: mediana, desvío y P25-máximo (vara desde el 28-nov-2026) del REM del MISMO relevamiento (vacío hasta que el BCRA lo publique).
 #   Real: IPC (general y núcleo), A3500 y TAMAR (promedio de meses ya terminados), PIB s.e. (última versión),
 #         desocupación EPH, exportaciones e importaciones (INDEC). Años, 12 y 24 meses: cuando el período terminó.
 #   Nosotros vs REM: z = (nuestro − mediana) / desvío de las consultoras; |z| < 1,96 -> no significativa (95%).
@@ -78,7 +78,7 @@ def rem_etiquetado():
         if clave == "desempleo" and tp == "anio":
             h = (pd.Period(f"{y}-12", "M") - rel).n           # el "año" de la EPH es su IV trimestre
         filas.append({"rel": rel, "clave": clave, "periodo": et, "h": h, "mediana": x.mediana, "desvio": x.desvio,
-                      "p10": x.percentil_10, "p90": x.percentil_90, "n_part": x.cantidad_de_participantes})
+                      "p25": x.percentil_25, "pmax": x.maximo, "n_part": x.cantidad_de_participantes})
     R = pd.DataFrame(filas)
     return R.groupby(["rel", "clave", "periodo"], as_index=False).first()
 
@@ -181,7 +181,7 @@ def main():
         rmse=lambda e: float(np.sqrt(np.mean(e ** 2))), n="count").reset_index()
 
     N = nuestros()
-    rem_rel = R[["rel", "clave", "periodo", "h", "mediana", "desvio", "p10", "p90", "n_part"]]
+    rem_rel = R[["rel", "clave", "periodo", "h", "mediana", "desvio", "p25", "pmax", "n_part"]]
     D = N.merge(rem_rel, on=["rel", "clave", "periodo"], how="left")
     # h para las filas sin REM todavía (relevamiento en curso): el mismo que pidió el REM anterior, corrido
     D["h"] = D["h"].fillna(pd.Series([hh for hh in D.apply(lambda x: _h_sin_rem(x), axis=1)], index=D.index))
@@ -211,7 +211,7 @@ def main():
     salida = pd.DataFrame({
         "Relevamiento": D["rel"].astype(str), "Estado": D["estado"], "Variable": D["clave"].map(NOMBRE), "Unidad": D["clave"].map(UNIDAD),
         "Período": D["periodo"], "Datos Con Método": D["nuestro"], "REM (mediana)": D["mediana"],
-        "REM desvío consultoras": D["desvio"], "REM P10": D["p10"], "REM P90": D["p90"], "Consultoras": D["n_part"],
+        "REM desvío consultoras": D["desvio"], "REM P25": D["p25"], "REM máximo": D["pmax"], "Consultoras": D["n_part"],
         "Dif. nosotros − REM": D["dif_rem"], "z vs REM": D["z_rem"], "¿Diferencia con el REM?": D["sig_rem"],
         "Dato real": D["real"], "Dif. nosotros − real": D["dif_real"], "Dif. REM − real": D["rem_real"],
         "Error típico del REM (mismo plazo)": D["rmse"], "Casos para el error típico": D["n"], "z vs real": D["z_real"],

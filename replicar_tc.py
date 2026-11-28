@@ -98,7 +98,7 @@ def main():
     ga = ga[(ga["h"] > 0) & (ga["obj"] > ga["origen"])]
     G = pd.concat([gm, g12, ga])
     G = G[G["h"].isin(HORIZ)].groupby(["origen", "h"]).agg(rem=("mediana", "mean"), p10=("percentil_10", "mean"),
-                                                           p90=("percentil_90", "mean"), fecha_rel=("fecha_rel", "max"),
+                                                           p90=("percentil_90", "mean"), p25=("percentil_25", "mean"), pmax=("maximo", "mean"), fecha_rel=("fecha_rel", "max"),
                                                            obj=("obj", "first")).reset_index()
     fechas = np.sort(fu["fecha"].unique())
     filas = []
@@ -112,7 +112,7 @@ def main():
         fut, spot = curva_promedio(fu, tc, pd.Timestamp(f[-1]), o)
         for _, x in q.iterrows():
             k = x["h"] if x["h"] < DIC0 else (x["obj"] - o).n          # meses hasta el mes objetivo
-            filas.append({"origen": o, "h": x["h"], "obj": x["obj"], "rem": x["rem"], "p10": x["p10"], "p90": x["p90"],
+            filas.append({"origen": o, "h": x["h"], "obj": x["obj"], "rem": x["rem"], "p10": x["p10"], "p90": x["p90"], "p25": x["p25"], "pmax": x["pmax"],
                           "futuro": fut.get(k, np.nan), "spot": spot, "real": prom.get(x["obj"], np.nan)})
     X = pd.DataFrame(filas).sort_values(["h", "origen"]).reset_index(drop=True)
     X["lg_rem_fut"] = np.log(X["rem"] / X["futuro"])
@@ -126,7 +126,7 @@ def main():
             desc = prev["lg_rem_fut"].dropna().tail(VENTANA)
             conocidos = prev[(prev["obj"] <= o - 1)]["lg_real_fut"].dropna().tail(VENTANA)   # real ya publicado en o
             ant = q.loc[o - 1] if (o - 1) in q.index else None
-            r = {"origen": o, "h": h, "obj": x["obj"], "rem": x["rem"], "real": x["real"], "p10": x["p10"], "p90": x["p90"],
+            r = {"origen": o, "h": h, "obj": x["obj"], "rem": x["rem"], "real": x["real"], "p10": x["p10"], "p90": x["p90"], "p25": x["p25"], "pmax": x["pmax"],
                  "futuro": x["futuro"], "spot": x["spot"]}
             r["A_dolar"] = x["futuro"] * np.exp(desc.mean()) if len(desc) >= 6 else np.nan
             r["I_dolar"] = x["futuro"] * np.exp(conocidos.mean()) if len(conocidos) >= 6 else np.nan
@@ -152,9 +152,9 @@ def main():
         L.append("   Distancia al REM (%):" + "".join(f"{ETIQ[h]:>10}" for h in HORIZ))
         for c in mods[:-1]:
             L.append(f"     {c:10}" + "".join(f"{pc(q[q.h == h][c], q[q.h == h]['rem']).mean():10.2f}" for h in HORIZ))
-        L.append("   Dentro del rango P10-P90 de las consultoras (%):")
+        L.append("   Dentro del rango P25-máximo de las consultoras (%):")
         for c in ("A_dolar", "B_dolar"):
-            L.append(f"     {c:10}" + "".join(f"{((q[q.h == h][c] >= q[q.h == h]['p10']) & (q[q.h == h][c] <= q[q.h == h]['p90'])).mean() * 100:10.0f}" for h in HORIZ))
+            L.append(f"     {c:10}" + "".join(f"{((q[q.h == h][c] >= q[q.h == h]['p25']) & (q[q.h == h][c] <= q[q.h == h]['pmax'])).mean() * 100:10.0f}" for h in HORIZ))
         L.append("   Error contra el dólar real (%):" + "".join(f"{ETIQ[h]:>10}" for h in HORIZ))
         for c in mods + ["rem"]:
             L.append(f"     {c:10}" + "".join(f"{pc(q[q.h == h].dropna(subset=['real'])[c], q[q.h == h].dropna(subset=['real'])['real']).mean():10.2f}" for h in HORIZ))

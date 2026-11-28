@@ -195,7 +195,7 @@ def main():
                 m = t + hh
                 f = {"var": var, "tipo": "mes", "origen": t, "objetivo": str(m), "h": hh,
                      "rem": q["mediana"].get(m, np.nan), "p10": q["percentil_10"].get(m, np.nan),
-                     "p90": q["percentil_90"].get(m, np.nan), "real": s.get(m, np.nan) if m <= s.index.max() else np.nan,
+                     "p90": q["percentil_90"].get(m, np.nan), "p25": q["percentil_25"].get(m, np.nan), "pmax": q["maximo"].get(m, np.nan), "real": s.get(m, np.nan) if m <= s.index.max() else np.nan,
                      "base": cams["I"][m] / np.exp((g3 + g12) / 2) if (m - 12) <= ult or True else np.nan,
                      "g3": g3, "g12": g12, "ult_rel": ult_rel}
                 for k, c in cams.items():
@@ -206,7 +206,7 @@ def main():
                 ms = pd.period_range(f"{a}-01", f"{a}-12", freq="M")
                 f = {"var": var, "tipo": "año", "origen": t, "objetivo": str(a), "h": a - t.year,
                      "rem": qa["mediana"].get(a, np.nan), "p10": qa["percentil_10"].get(a, np.nan),
-                     "p90": qa["percentil_90"].get(a, np.nan),
+                     "p90": qa["percentil_90"].get(a, np.nan), "p25": qa["percentil_25"].get(a, np.nan), "pmax": qa["maximo"].get(a, np.nan),
                      "real": s[s.index.year == a].sum() if (s.index.year == a).sum() == 12 else np.nan,
                      "conocido": sum(s[m] for m in ms if m <= ult)}
                 for k, c in cams.items():
@@ -273,7 +273,7 @@ def main():
         L.append(f"##### {var.upper()}")
         for per, m_ in (("2021-2024", X["origen"] <= pd.Period("2024-12", "M")), ("2025-26", X["origen"] > pd.Period("2024-12", "M"))):
             L.append(f"== {per}")
-            L.append(f"   {'':8}{'distancia al REM (%)':>34} | {'error contra el real (%)':>44} | {'P10-P90':>14}")
+            L.append(f"   {'':8}{'distancia al REM (%)':>34} | {'error contra el real (%)':>44} | {'P25-máx':>14}")
             L.append(f"   {'':8}{'I g3':>8}{'I g12':>8}{'I':>8}{'A':>8}{'n':>4} | {'I g3':>7}{'I g12':>7}{'I':>7}{'A':>7}{'REM':>7}{'n':>4}{'p I-REM':>9} | {'I':>6}{'A':>6}")
             for (tipo, hh), z in X[m_ & X["rem"].notna()].groupby(["tipo", "h"]):
                 z = z.dropna(subset=["I", "A"])            # misma muestra para todos (A arranca tras 24 informes)
@@ -283,7 +283,7 @@ def main():
                     p = diebold_mariano(np.log(zr.I / zr.real).values, np.log(zr.rem / zr.real).values, max(hh, 1)) if len(zr) > 6 else np.nan
                 except Exception:
                     p = np.nan
-                cob = lambda c: ((z[c] >= z.p10) & (z[c] <= z.p90)).mean() * 100
+                cob = lambda c: ((z[c] >= z.p25) & (z[c] <= z.pmax)).mean() * 100
                 et = f"m{hh}" if tipo == "mes" else ("año" if hh == 0 else "año+1")
                 L.append(f"   {et:8}{e('I_g3', 'rem', z):8.1f}{e('I_g12', 'rem', z):8.1f}{e('I', 'rem', z):8.1f}{e('A', 'rem', z):8.1f}{len(z):4d} | "
                          f"{e('I_g3', 'real', zr):7.1f}{e('I_g12', 'real', zr):7.1f}{e('I', 'real', zr):7.1f}{e('A', 'real', zr):7.1f}"

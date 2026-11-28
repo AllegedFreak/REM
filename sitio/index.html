@@ -104,7 +104,7 @@
       <p class="nota" id="ur-nota"></p>
       <div class="historias" id="ur-filas"></div>
       <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
-      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja del medio (80% de las consultoras) <span class="lr-linea"></span>del pronóstico más bajo al más alto
+      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja de referencia (del percentil 25 al pronóstico más alto) <span class="lr-linea"></span>del pronóstico más bajo al más alto
         <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM*</p>
       <p class="nota">Detalle de todos los horizontes y variables en la tabla "Comparación de pronósticos": <a href="descargas/comparacion_pronosticos.xlsx" download>descargar en Excel</a> (también en <a href="descargas/comparacion_pronosticos.zip" download>CSV comprimido</a>).</p>
     </div>
@@ -116,7 +116,7 @@
       <p class="intro" id="re-titular">Cada vez que sale un dato oficial, vemos quién estuvo más cerca: nosotros o la mediana de las consultoras.</p>
       <div class="historias" id="re-filas"></div>
       <p class="nota-dcm"><strong>*DCM = Datos Con Método</strong></p>
-      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja del medio (80% de las consultoras) <span class="lr-linea"></span>del pronóstico más bajo al más alto
+      <p class="leyenda-rango" aria-hidden="true"><span class="lr-banda"></span>franja de referencia (del percentil 25 al pronóstico más alto) <span class="lr-linea"></span>del pronóstico más bajo al más alto
         <span class="lr-rem"></span>mediana del REM <span class="lr-dcm"></span>pronóstico de DCM* <span class="lr-real"></span>dato real</p>
       <p class="nota">Se compara el último pronóstico hecho antes de que se conociera el dato.</p>
     </div>
@@ -175,7 +175,7 @@
         <li>la distancia a la mediana del REM, en el mismo relevamiento y horizonte;</li>
         <li>el error frente al dato efectivamente publicado, comparado con el del REM.</li>
       </ul>
-      <p>Como vara de "pronosticador típico" se adoptó que el pronóstico propio caiga dentro del 80% central de la distribución de los participantes (entre los percentiles 10 y 90) en aproximadamente el 80% de los casos. Una vez alcanzada una réplica aceptable, el objetivo se amplió a evaluar si los modelos propios pueden igualar o mejorar a la mediana del REM frente al dato observado.</p>
+      <p>Como vara de "pronosticador típico" se adoptó que el pronóstico propio caiga dentro de la franja que va del percentil 25 de los participantes al pronóstico más alto, en aproximadamente el 75% de los casos (hasta noviembre de 2026 la vara era el 80% central, entre los percentiles 10 y 90). Una vez alcanzada una réplica aceptable, el objetivo se amplió a evaluar si los modelos propios pueden igualar o mejorar a la mediana del REM frente al dato observado.</p>
 
       <h3>2. Punto de partida teórico</h3>
       <p>El trabajo empezó por la relación entre dinero y precios, siguiendo la teoría cuantitativa (MV = PY) y la intuición de que la emisión monetaria, en particular la destinada a financiar al Tesoro, precede a la inflación con rezagos.</p>
@@ -209,7 +209,7 @@
       </ul>
       <p>Cada candidata se evaluó con un procedimiento uniforme: primero su significancia dentro de muestra, y después, sobre todo, su aporte fuera de muestra en tiempo real.</p>
       <ul>
-        <li><strong>Las que aportaron:</strong> las expectativas de inflación de los hogares (redujeron la distancia al REM entre 12% y 34% según el horizonte), la devaluación implícita en los futuros de dólar (redujo un 47% la distancia a 12 meses) y los precios de supermercados para el mes en curso.</li>
+        <li><strong>Las que aportaron:</strong> las expectativas de inflación de los hogares (redujeron la distancia al REM entre 12% y 34% según el horizonte), la devaluación implícita en los futuros de dólar (redujo un 47% la distancia a 12 meses), los precios de supermercados para el mes en curso y los aumentos de tarifas ya anunciados. Los precios de hacienda también mejoraron el mes en curso en las pruebas, pero con pocos meses de historia el resultado no es concluyente: se siguen en observación.</li>
         <li><strong>Las que se descartaron:</strong> muchas otras candidatas razonables desde la teoría, como los precios mayoristas, la confianza del consumidor, el tipo de cambio real o las estimaciones oficiales de cosecha. Fueron significativas dentro de muestra, pero no mejoraron el pronóstico fuera de ella.</li>
       </ul>
 
@@ -236,7 +236,7 @@
       <h3>7. Cómo se estiman hoy las variables del REM</h3>
       <p>En términos generales, cada variable combina la información pública más reciente con una regla de proyección simple y verificable:</p>
       <ul>
-        <li><strong>Inflación:</strong> regresión robusta sobre la inflación núcleo reciente y las expectativas de los hogares, con un componente estacional. Se incorpora la devaluación esperada en los futuros cuando esta es significativa, y para el mes en curso se agrega la variación de precios en supermercados.</li>
+        <li><strong>Inflación:</strong> para el mes en curso y los dos siguientes se proyecta por separado cada componente del IPC: la inflación núcleo (a partir de su evolución reciente, las expectativas de los hogares y el REM anterior corregido por su sesgo histórico), los precios regulados (con los aumentos de tarifas ya anunciados, nacionales y del AMBA, y, en el mes en curso, los combustibles medidos en surtidor) y los estacionales (con el patrón típico de cada mes). En el mes en curso, el resultado se ajusta además con la variación de precios en supermercados. Desde el cuarto mes, y para los próximos 12 meses, el modelo econométrico se combina con las expectativas de inflación de los hogares.</li>
         <li><strong>Tipo de cambio:</strong> precios de los contratos de futuros, ajustados por el descuento que la mediana del REM aplicó históricamente a cada plazo.</li>
         <li><strong>PIB trimestral:</strong> se completa el estimador mensual de actividad (EMAE) con su tendencia reciente.</li>
         <li><strong>Tasa TAMAR:</strong> se parte del nivel vigente y se lo ajusta según las tasas futuras implícitas en el mercado de dólar.</li>

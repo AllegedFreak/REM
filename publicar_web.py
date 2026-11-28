@@ -1545,7 +1545,8 @@ def _titulo(var, horiz, per):
 
 def _rango(x):
     return {k: (None if pd.isna(x[c]) else float(x[c])) for k, c in
-            (("min", "rem_minimo"), ("p10", "rem_p10"), ("p50", "rem_mediana"), ("p90", "rem_p90"), ("max", "rem_maximo"))}
+            (("min", "rem_minimo"), ("p10", "rem_p10"), ("p25", "rem_p25"), ("p50", "rem_mediana"), ("p90", "rem_p90"),
+             ("max", "rem_maximo"))}
 
 
 def _ubicacion(x):
@@ -1556,13 +1557,14 @@ def _ubicacion(x):
     if pd.isna(p):
         return "sin_dato", ""
     p = int(p)
-    if 10 <= p <= 90:
-        return "central", f"En la franja del medio: el {p}% de las consultoras pronosticó menos que DCM*."
-    if p < 10:
+    # Vara desde el 28-nov-2026 (Marcos, opción 2): franja de referencia = del percentil 25 al pronóstico más alto (antes P10-P90).
+    if p < 25:
         return "extremo", ("Entre los más bajos: ninguna consultora pronosticó menos que DCM*." if p == 0 else
                            f"Entre los más bajos: solo el {p}% de las consultoras pronosticó menos que DCM*.")
-    return "extremo", ("Entre los más altos: ninguna consultora pronosticó más que DCM*." if p == 100 else
-                       f"Entre los más altos: solo el {100 - p}% de las consultoras pronosticó más que DCM*.")
+    if p > 90:
+        return "central", ("En la franja de referencia, entre los más altos: ninguna consultora pronosticó más que DCM*." if p == 100 else
+                           f"En la franja de referencia, entre los más altos: solo el {100 - p}% de las consultoras pronosticó más que DCM*.")
+    return "central", f"En la franja de referencia: el {p}% de las consultoras pronosticó menos que DCM*."
 
 
 def historias(t, rem_ultimo):
