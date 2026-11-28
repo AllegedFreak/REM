@@ -119,6 +119,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 .tabla-pron th:nth-child(1), .tabla-pron td:nth-child(1) { white-space: nowrap; padding-right: 12px; }
 .tabla-pron th:nth-child(2), .tabla-pron th:nth-child(3) { width: 28%; }
 .tabla-pron th.num, .tabla-pron td.num { text-align: center; }
+.tabla-pron td { font-size: .88rem; } /* medio punto menos que el resto de las tablas (28-nov-2026, Marcos) */
 .tabla-pron thead th { vertical-align: bottom; line-height: 1.3; }
 .dif { color: var(--tenue); }
 .marca-nuestro { color: var(--tinta); font-weight: 600; }

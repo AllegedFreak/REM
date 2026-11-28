@@ -126,7 +126,7 @@
       const suf = x.unidad.startsWith("%") || x.clave === "tamar" ? "%" : "";
       const val = `${pre}${fmt(x.valor, x.dec)}${suf}`;
       // enlaces al pie: "Ver pronóstico" (solo las que pide el REM) y "Ver serie histórica" (la serie en la sección Datos)
-      const destino = { inflacion: "inflacion", dolar: "dolar", pib: "pib", desempleo: "desempleo", fiscal: "fiscal", tamar: "tasa" }[x.clave];
+      const destino = { inflacion: "inflacion", nucleo: "nucleo", dolar: "dolar", pib: "pib", desempleo: "desempleo", fiscal: "fiscal", tamar: "tasa" }[x.clave];
       const serie = SERIE_HOY[x.clave];
       const pie = el("p", { class: "tile-fuente" }, `Fuente: ${x.fuente}`);
       if (destino) pie.append(" · ", el("a", { href: `#pron-${destino}`, text: "Ver pronóstico →" }));
@@ -479,7 +479,7 @@
 
   // serie histórica de cada tarjeta de "Variables de hoy" (código del catálogo)
   const SERIE_HOY = {
-    inflacion: "indec_ipc_general_indice_var_mensual", dolar: "bcra_api_tc_mayorista_a3500", ccl: "argentinadatos_dolar_ccl",
+    inflacion: "indec_ipc_general_indice_var_mensual", nucleo: "indec_ipc_nucleo_indice_var_mensual", dolar: "bcra_api_tc_mayorista_a3500", ccl: "argentinadatos_dolar_ccl",
     mep: "argentinadatos_dolar_mep", pib: "indec_pib_desest_pib", super: "dcm_sepa_mensual_nacional",
     fiscal: "datosgob_452.3_RESULTADO_RIO_0_M_18_54", tamar: "bcra_api_tamar_tna",
     desempleo: "indec_eph_desocupacion", sipa: "datosgob_151.1_TL_SIN_TAC_2012_M_15",

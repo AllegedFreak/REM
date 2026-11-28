@@ -115,9 +115,9 @@ def pronosticos():
         for _, x in i.iterrows():
             H = str(x["H"])
             if H.startswith("año"):
-                et, rem = f"Año {x['objetivo']} (dic/dic)", ra_anio.get(str(x["objetivo"]), np.nan)
+                et, rem = f"Año {x['objetivo']}", ra_anio.get(str(x["objetivo"]), np.nan)
             elif H == "24m":
-                et, rem = "Próx. 24 meses (2.º año)", ra_24
+                et, rem = "Próx. 24 meses", ra_24
             else:
                 et, rem = ("Próx. 12 meses" if H == "12m" else x["objetivo"]), ra.get("12m" if H == "12m" else str(x["objetivo"]), np.nan)
             filas.append({"periodo": et, "nuestro": x["pronostico_inflacion"], "rem": rem})
@@ -135,8 +135,8 @@ def pronosticos():
         filas = []
         for _, x in nu.iterrows():
             H = str(x["H"])
-            et = {"año": f"Año {x['objetivo']} (dic/dic)", "año1": f"Año {x['objetivo']} (dic/dic)", "año2": f"Año {x['objetivo']} (dic/dic)",
-                  "12m": "Próx. 12 meses", "24m": "Próx. 24 meses (2.º año)"}.get(H, x["objetivo"])
+            et = {"año": f"Año {x['objetivo']}", "año1": f"Año {x['objetivo']}", "año2": f"Año {x['objetivo']}",
+                  "12m": "Próx. 12 meses", "24m": "Próx. 24 meses"}.get(H, x["objetivo"])
             orden_n = (1, "") if H == "12m" else (3, "") if H == "24m" else (2, str(x["objetivo"])) if H.startswith("año") else (0, str(x["objetivo"]))
             rem = (rn_anio.get(str(x["objetivo"]), np.nan) if H.startswith("año") else rn_24 if H == "24m"
                    else rn.get("12m" if H == "12m" else str(x["objetivo"]), np.nan))
@@ -219,7 +219,10 @@ def indicadores():
         i = pd.read_parquet(C / "ipc_indec.parquet").sort_values("mes")
         u = i.iloc[-1]
         agregar("inflacion", "Inflación", u["ipc_general_indice_var_mensual"], "% mensual", str(u["mes"])[:7],
-                f"Núcleo {u['ipc_nucleo_indice_var_mensual']:.1f}% · interanual {u['ipc_general_indice_var_ia']:.1f}%".replace(".", ","), "INDEC", 1)
+                f"Interanual {u['ipc_general_indice_var_ia']:.1f}%".replace(".", ","), "INDEC", 1)
+        # núcleo con tarjeta propia, al lado de inflación (28-nov-2026, Marcos)
+        agregar("nucleo", "Inflación núcleo", u["ipc_nucleo_indice_var_mensual"], "% mensual", str(u["mes"])[:7],
+                f"Interanual {u['ipc_nucleo_indice_var_ia']:.1f}%".replace(".", ","), "INDEC", 1)
     except Exception:
         pass
     try:                                                    # dólar mayorista y TAMAR (BCRA)
@@ -298,7 +301,7 @@ def indicadores():
                     "Secretaría de Trabajo", 2)
     except Exception:
         pass
-    orden = ["inflacion", "dolar", "ccl", "mep", "pib", "desempleo", "sipa", "super", "fiscal", "tamar"]
+    orden = ["inflacion", "nucleo", "dolar", "ccl", "mep", "pib", "desempleo", "sipa", "super", "fiscal", "tamar"]
     return sorted(out, key=lambda x: orden.index(x["clave"]) if x["clave"] in orden else 99)
 
 
@@ -1683,6 +1686,11 @@ def mes_en_curso(tarjetas):
     if f:
         out.append({"clave": "inflacion", "titulo": "Inflación", "periodo": nombre_mes, "valor": _num(f["nuestro"], 2) + "%",
                     "unidad": "mensual (IPC nacional)", "nota": "Incluye los precios de supermercados del mes en curso."})
+    # núcleo, PIB anual y desocupación (28-nov-2026, Marcos: "faltan variables (como desocupación), podemos sumar las tarjetas?")
+    f = primera("nucleo", mes)
+    if f:
+        out.append({"clave": "nucleo", "titulo": "Inflación núcleo", "periodo": nombre_mes, "valor": _num(f["nuestro"], 2) + "%",
+                    "unidad": "mensual (IPC nacional)", "nota": "Sin regulados ni estacionales."})
     # dólar: promedio del mes en curso
     r = _promedio_mes("tc_mayorista_a3500", hoy)
     if r:
@@ -1710,6 +1718,15 @@ def mes_en_curso(tarjetas):
         q = str(f["periodo"])
         out.append({"clave": "pib", "titulo": "PIB trimestral", "periodo": q.replace("Q", " T"), "valor": _num(f["nuestro"], 2) + "%",
                     "unidad": "contra el trimestre anterior, s.e.", "nota": "Último trimestre todavía sin dato oficial del INDEC."})
+    f = primera("pib_anual")
+    if f:
+        out.append({"clave": "pib_anual", "titulo": "PIB anual", "periodo": f"Año {f['periodo']}", "valor": _num(f["nuestro"], 2) + "%",
+                    "unidad": "promedio anual contra el año anterior", "nota": "El REM pide el año completo, no el trimestre."})
+    f = primera("desempleo")
+    if f:
+        out.append({"clave": "desempleo", "titulo": "Desocupación (EPH)", "periodo": str(f["periodo"]).replace("Q", " T"),
+                    "valor": _num(f["nuestro"], 2) + "%", "unidad": "de la población activa, 31 aglomerados urbanos",
+                    "nota": "Último trimestre todavía sin dato oficial del INDEC."})
     # precios en supermercados, proyectado a fin de mes: los días que faltan siguen el ritmo de las últimas dos semanas
     # (pendiente diaria en logaritmos); variación = promedio del mes completo contra el promedio del mes anterior
     try:
